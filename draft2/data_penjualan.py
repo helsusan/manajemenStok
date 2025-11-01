@@ -64,46 +64,27 @@ if uploaded_file is not None:
 
 
 
-
-
-    # Divider
-    st.divider()
+# Divider
+st.divider()
     
-    # Section untuk melihat data barang yang tersedia
-    st.subheader("🔍 Daftar Barang")
+# Section untuk melihat data barang yang tersedia
+st.subheader("🔍 Data Penjualan")
+st.write("ℹ️ Data pada tabel ditampilkan dari tanggal terbaru")
     
-    if st.button("Tampilkan Daftar Barang"):
-        try:
-            results = database.run_query("SELECT nama FROM barang ORDER BY nama")
+if st.button("Tampilkan Data Penjualan"):
+    try:
+        results = database.run_query("""SELECT no_faktur AS 'No Faktur',
+                                     tgl_faktur AS 'Tgl Faktur',
+                                     nama_pelanggan AS 'Nama Pelanggan',
+                                     id_barang AS 'Keterangan Barang',
+                                     kuantitas AS 'Kuantitas',
+                                     jumlah AS 'Jumlah' FROM penjualan ORDER BY tgl_faktur DESC""")
             
-            if results:
-                df_barang = pd.DataFrame(results)
-                st.dataframe(df_barang, use_container_width=True)
-            else:
-                st.warning("Tidak ada data barang di database")
+        if results:
+            df_penjualan = pd.DataFrame(results)
+            st.dataframe(df_penjualan, use_container_width=True)
+        else:
+            st.warning("Tidak ada data penjualan di database")
                 
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-
-
-
-
-    # Divider
-    st.divider()
-    
-    # Section untuk melihat data barang yang tersedia
-    st.subheader("🔍 Data Penjualan")
-    
-    if st.button("Tampilkan Data Penjualan"):
-        try:
-            results = database.run_query("SELECT * FROM penjualan ORDER BY tgl_faktur DESC")
-            
-            if results:
-                df_penjualan = pd.DataFrame(results)
-                st.dataframe(df_penjualan, use_container_width=True)
-            else:
-                st.warning("Tidak ada data penjualan di database")
-                
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+    except Exception as e:
+        st.error(f"Error: {str(e)}")

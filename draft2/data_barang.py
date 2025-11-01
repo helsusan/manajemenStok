@@ -36,3 +36,27 @@ with st.form("form_tambah_barang"):
                         
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+
+
+
+
+
+
+# Divider
+st.divider()
+    
+# Section untuk melihat data barang yang tersedia
+st.subheader("🔍 Daftar Barang")
+    
+if st.button("Tampilkan Daftar Barang"):
+    try:
+        results = database.run_query("SELECT nama FROM barang ORDER BY nama")
+            
+        if results:
+            df_barang = pd.DataFrame(results)
+            st.dataframe(df_barang, use_container_width=True)
+        else:
+            st.warning("Tidak ada data barang di database")
+                
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
