@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import database
+import draft1.database as database
 
 # def get_id_barang(nama_barang):
 #     """

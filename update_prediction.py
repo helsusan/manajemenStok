@@ -1,5 +1,5 @@
 import datetime
-import database
+import draft1.database as database
 
 # Print sesuatu jika code dijalankan
 file = open(r'C:\laragon\www\manajemenStok\task.txt', 'a')
