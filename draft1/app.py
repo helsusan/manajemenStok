@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_option_menu import option_menu
-import dashboard
-import data
+import home_page
+import data_page
 
 st.title("Program Manajemen Stok")
 
@@ -14,6 +14,6 @@ selected = option_menu(
 )
 
 if selected == "Data":
-    data.show()
+    data_page.show()
 else:
-    dashboard.show()
+    home_page.show()
