@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 import database
 
 def get_next_3_months():
-    today = datetime.now()
+    today = datetime.now().date()
     next_month = today.replace(day=1) + relativedelta(months=1)
 
     dates = []
@@ -25,7 +25,7 @@ def get_next_3_months():
 def check_prediksi(id_barang):
     required_dates = get_next_3_months()
     start_date = required_dates[0].strftime('%Y-%m-%d')
-    end_date = required_dates[0].strftime('%Y-%m-%d')
+    end_date = required_dates[2].strftime('%Y-%m-%d')
 
     df_prediksi = database.get_data_prediksi(id_barang, start_date, end_date)
 
@@ -59,6 +59,10 @@ def prediksi_arima(id_barang, p, d, q):
     # sales.index = sales.index.strftime('%Y-%m')
     sales.index.name = None
     ori_sales = sales.copy()
+
+    print("\nPREDIKSI ARIMA - DATA SALES")
+    print(sales)
+    print("=" * 60)
     
     sales['kuantitas'] = savgol_filter(sales['kuantitas'], 5, 2)
 
