@@ -53,10 +53,7 @@ def check_prediksi(id_barang):
     }
 
 def prediksi_arima(id_barang, p, d, q):
-    sales = database.get_data_penjualan(id_barang)
-    # df['tgl_faktur'] = pd.to_datetime(df['tgl_faktur'])
-    # sales = df.set_index('tgl_faktur').resample('MS').agg(Quantity=('kuantitas', 'sum')).fillna(0)
-    # sales.index = sales.index.strftime('%Y-%m')
+    sales = database.get_all_data_penjualan(id_barang)
     sales.index.name = None
     ori_sales = sales.copy()
 
@@ -122,7 +119,7 @@ def prediksi_mean(id_barang):
 
     return result
 
-def generate_prediksi(info_barang):
+def generate_prediksi(info_barang, months_ahead):
     id_barang = info_barang[0]
     model_prediksi = info_barang[2]
     p=int(info_barang[3]) if pd.notna(info_barang[3]) else None

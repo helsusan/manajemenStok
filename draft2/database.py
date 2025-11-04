@@ -121,6 +121,39 @@ def get_all_nama_barang():
     conn.close()
     return df
 
+def get_all_data_penjualan(id_barang):
+    conn = get_connection()
+
+    query = """
+    SELECT 
+        DATE_FORMAT(tgl_faktur, '%Y-%m-01') AS tanggal,
+        SUM(kuantitas) AS kuantitas
+    FROM penjualan
+    WHERE id_barang = %s
+    GROUP BY DATE_FORMAT(tgl_faktur, '%Y-%m-01')
+    ORDER BY tanggal;
+    """
+
+    df = pd.read_sql(query, conn, params=(id_barang,))
+    conn.close()
+        
+    if len(df) > 0:
+        df['tanggal'] = pd.to_datetime(df['tanggal'], errors='coerce')
+        df = df.set_index('tanggal').sort_index()
+
+        # Tentukan tanggal awal dan akhir dari data yang ada
+        first_date = df.index.min()
+        last_date = df.index.max()
+
+        # Buat range bulanan lengkap dari awal sampai akhir
+        all_months = pd.date_range(start=first_date, end=last_date, freq='MS')
+
+        # Isi bulan kosong dengan 0
+        df = df.reindex(all_months, fill_value=0)
+        df.index = df.index.date
+        
+    return df
+
 def get_data_penjualan(id_barang, start_date=None):
     conn = get_connection()
 
@@ -148,7 +181,7 @@ def get_data_penjualan(id_barang, start_date=None):
         
     return df
 
-def get_data_prediksi(id_barang, start_date, end_date):
+def get_data_prediksi(id_barang, start_date=None, end_date=None):
     conn = get_connection()
     query = "SELECT tanggal, kuantitas FROM prediksi WHERE id_barang = %s"
 
@@ -174,6 +207,55 @@ def get_data_prediksi(id_barang, start_date, end_date):
         
     return df
 
+# def get_last_12_data_penjualan(id_barang):
+#     # Tentukan range tanggal (12 bulan ke belakang dari bulan sekarang)
+#     end_date = datetime.now().replace(day=1).date()
+#     start_date = end_date - timedelta(days=365)
+
+#     penjualan = get_data_penjualan(id_barang, start_date.strftime('%Y-%m-%d'))
+
+#     # Buat range bulan lengkap
+#     date_range = [d.date() for d in pd.date_range(start=start_date, end=end_date, freq='MS')]
+#     combined = pd.DataFrame(index=date_range, columns=['kuantitas'])
+#     combined.index.name = 'tanggal'
+        
+#     # Fill dengan data penjualan
+#     if len(penjualan) > 0:
+#         if 'tanggal' in penjualan.columns:
+#             penjualan = penjualan.set_index('tanggal')
+#         penjualan = penjualan.sort_index()
+#         combined.update(penjualan)
+        
+#     # Fill missing values dengan data prediksi
+#     missing_dates = combined[combined['kuantitas'].isna()].index
+#     if len(missing_dates) > 0:
+#             prediksi = get_data_prediksi(
+#             id_barang, 
+#             missing_dates.min().strftime('%Y-%m-%d'),
+#             missing_dates.max().strftime('%Y-%m-%d')
+#         )
+#     if len(prediksi) > 0:
+#         if 'tanggal' in prediksi.columns:
+#             prediksi = prediksi.set_index('tanggal')
+#         prediksi = prediksi.sort_index()
+#         combined.update(prediksi)
+        
+#     # Ambil 12 bulan terakhir saja
+#     combined = combined.iloc[-12:]
+#     combined['kuantitas'] = pd.to_numeric(combined['kuantitas'], errors='coerce')
+    
+#     print("\nDATA PENJUALAN")
+#     print(penjualan)
+#     print("=" * 60)
+#     print("DATA PREDIKSI")
+#     print(prediksi)
+#     print("=" * 60)
+#     print("LAST 12 DATA PENJUALAN")
+#     print(combined)
+#     print("=" * 60)
+
+#     return combined
+
 def get_last_12_data_penjualan(id_barang):
     # Tentukan range tanggal (12 bulan ke belakang dari bulan sekarang)
     end_date = datetime.now().replace(day=1).date()
@@ -183,7 +265,10 @@ def get_last_12_data_penjualan(id_barang):
 
     # Buat range bulan lengkap
     date_range = [d.date() for d in pd.date_range(start=start_date, end=end_date, freq='MS')]
+    
+    # FIX: Inisialisasi dengan 0, bukan NaN
     combined = pd.DataFrame(index=date_range, columns=['kuantitas'])
+    combined['kuantitas'] = 0  # <-- INI YANG DITAMBAHKAN
     combined.index.name = 'tanggal'
         
     # Fill dengan data penjualan
@@ -191,31 +276,43 @@ def get_last_12_data_penjualan(id_barang):
         if 'tanggal' in penjualan.columns:
             penjualan = penjualan.set_index('tanggal')
         penjualan = penjualan.sort_index()
-        combined.update(penjualan)
+        
+        # FIX: Update hanya untuk tanggal yang ada di penjualan
+        for idx in penjualan.index:
+            if idx in combined.index:
+                combined.loc[idx, 'kuantitas'] = penjualan.loc[idx, 'kuantitas']
         
     # Fill missing values dengan data prediksi
-    missing_dates = combined[combined['kuantitas'].isna()].index
+    missing_dates = combined[combined['kuantitas'] == 0].index
     if len(missing_dates) > 0:
-            prediksi = get_data_prediksi(
+        prediksi = get_data_prediksi(
             id_barang, 
             missing_dates.min().strftime('%Y-%m-%d'),
             missing_dates.max().strftime('%Y-%m-%d')
         )
-    if len(prediksi) > 0:
-        if 'tanggal' in prediksi.columns:
-            prediksi = prediksi.set_index('tanggal')
-        prediksi = prediksi.sort_index()
-        combined.update(prediksi)
         
+        if len(prediksi) > 0:
+            if 'tanggal' in prediksi.columns:
+                prediksi = prediksi.set_index('tanggal')
+            prediksi = prediksi.sort_index()
+            
+            # FIX: Update hanya untuk tanggal yang ada di prediksi
+            for idx in prediksi.index:
+                if idx in combined.index and combined.loc[idx, 'kuantitas'] == 0:
+                    combined.loc[idx, 'kuantitas'] = prediksi.loc[idx, 'kuantitas']
+    
     # Ambil 12 bulan terakhir saja
     combined = combined.iloc[-12:]
-    combined['kuantitas'] = pd.to_numeric(combined['kuantitas'], errors='coerce')
+    combined['kuantitas'] = pd.to_numeric(combined['kuantitas'], errors='coerce').fillna(0)
     
     print("\nDATA PENJUALAN")
     print(penjualan)
     print("=" * 60)
     print("DATA PREDIKSI")
-    print(prediksi)
+    if len(missing_dates) > 0 and 'prediksi' in locals():
+        print(prediksi)
+    else:
+        print("Tidak ada prediksi")
     print("=" * 60)
     print("LAST 12 DATA PENJUALAN")
     print(combined)

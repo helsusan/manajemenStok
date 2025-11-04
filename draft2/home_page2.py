@@ -8,7 +8,6 @@ import os
 import pandas as pd
 
 barang_df = database.get_all_nama_barang()
-# barang_list = barang_df.tolist()
 barang = st.selectbox(
     "Pilih jenis barang", 
     barang_df
@@ -63,9 +62,7 @@ penjualan_df = database.get_data_penjualan(info_barang[0])
 # Data prediksi 3 bulan ke depan
 next_month = prediction.get_next_3_months()
 prediksi_df = database.get_data_prediksi(
-    info_barang[0],
-    next_month[0].strftime('%Y-%m-%d'),
-    next_month[-1].strftime('%Y-%m-%d')
+    info_barang[0]
 )
 
 # Check if data exists
@@ -134,24 +131,24 @@ fig = go.Figure()
 
 # Trace 1: Actual Sales (Data Historis)
 fig.add_trace(go.Scatter(
-    x=penjualan_df.index.strftime('%Y-%m'),
+    x=penjualan_df.index.map(lambda d: d.strftime('%Y-%m')),
     y=penjualan_df['kuantitas'].values,
     mode='lines+markers',
-    name='Data Penjualan',
-    line=dict(color='#2E86AB', width=3),
-    marker=dict(size=8, symbol='circle'),
-    hovertemplate='<b>%{x}</b><br>Penjualan: %{y:,.0f}<extra></extra>'
+    name='Actual Sales',
+    line=dict(color='#2E86AB', width=2),
+    marker=dict(size=8),
+    hovertemplate='<b>%{x}</b><br>Actual Sales: %{y:,.0f}<extra></extra>'
 ))
 
 # Trace 2: Predicted Sales (Data Prediksi)
 fig.add_trace(go.Scatter(
-    x=prediksi_df.index.strftime('%Y-%m'),
+    x=prediksi_df.index.map(lambda d: d.strftime('%Y-%m')),
     y=prediksi_df['kuantitas'].values,
     mode='lines+markers',
-    name='Prediksi',
-    line=dict(color='#F77F00', width=3, dash='dot'),
-    marker=dict(size=10, symbol='star'),
-    hovertemplate='<b>%{x}</b><br>Prediksi: %{y:,.0f}<extra></extra>'
+    name='Predicted Sales',
+    line=dict(color='#F77F00', width=2),
+    marker=dict(size=10),
+    hovertemplate='<b>%{x}</b><br>Predicted Sales: %{y:,.0f}<extra></extra>'
 ))
 
 # Vertical line untuk marking "sekarang"
@@ -165,12 +162,16 @@ fig.add_vline(
     annotation_position="top"
 )
 
+# Gabungkan semua tanggal dari penjualan dan prediksi
+all_dates = penjualan_df.index.union(prediksi_df.index)
+
 # Layout
 fig.update_xaxes(
     dtick="M1",
     tickformat="%b %Y",
     # tickformat="%Y-%m",
-    tickangle=45
+    tickangle=45,
+    range=[all_dates.min(), all_dates.max()]
 )
 
 fig.update_layout(
@@ -205,21 +206,21 @@ st.plotly_chart(fig, use_container_width=True)
 # TABEL DATA PREDIKSI
 # ================================================
 
-st.markdown("---")
-st.subheader("📋 Detail Prediksi 3 Bulan Ke Depan")
+# st.markdown("---")
+# st.subheader("📋 Detail Prediksi 3 Bulan Ke Depan")
 
-# Format tabel prediksi
-tabel_prediksi = prediksi_df.copy()
-tabel_prediksi['Bulan'] = tabel_prediksi.index.strftime('%B %Y')
-tabel_prediksi['Kuantitas'] = tabel_prediksi['kuantitas'].apply(lambda x: f"{x:,.0f}")
-tabel_prediksi = tabel_prediksi[['Bulan', 'Kuantitas']].reset_index(drop=True)
-tabel_prediksi.index = tabel_prediksi.index + 1
+# # Format tabel prediksi
+# tabel_prediksi = prediksi_df.copy()
+# tabel_prediksi['Bulan'] = tabel_prediksi.index.strftime('%B %Y')
+# tabel_prediksi['Kuantitas'] = tabel_prediksi['kuantitas'].apply(lambda x: f"{x:,.0f}")
+# tabel_prediksi = tabel_prediksi[['Bulan', 'Kuantitas']].reset_index(drop=True)
+# tabel_prediksi.index = tabel_prediksi.index + 1
 
-st.dataframe(
-    tabel_prediksi,
-    use_container_width=True,
-    hide_index=False
-)
+# st.dataframe(
+#     tabel_prediksi,
+#     use_container_width=True,
+#     hide_index=False
+# )
 
 # ================================================
 # FOOTER INFO
