@@ -9,16 +9,6 @@ warnings.filterwarnings('ignore')
 import database
 
 def get_months_in_range(start_date, end_date):
-    """
-    Dapatkan list bulan dari start_date sampai end_date
-    
-    Args:
-        start_date: datetime object (awal)
-        end_date: datetime object (akhir)
-    
-    Returns:
-        List of date objects (tanggal 1 setiap bulan)
-    """
     if not isinstance(start_date, datetime):
         start_date = datetime.combine(start_date, datetime.min.time())
     if not isinstance(end_date, datetime):
@@ -35,17 +25,6 @@ def get_months_in_range(start_date, end_date):
     return dates
 
 def check_prediksi_range(id_barang, start_date, end_date):
-    """
-    Cek apakah prediksi sudah ada untuk range tertentu
-    
-    Args:
-        id_barang: ID barang
-        start_date: String 'YYYY-MM-DD' atau datetime
-        end_date: String 'YYYY-MM-DD' atau datetime
-    
-    Returns:
-        Dict dengan info existing dan missing months
-    """
     # Parse string ke datetime jika perlu
     if isinstance(start_date, str):
         start_date = datetime.strptime(start_date, '%Y-%m-%d')
@@ -183,14 +162,6 @@ def prediksi_mean(id_barang, target_dates):
     return result
 
 def generate_prediksi_range(info_barang, start_month, end_month):
-    """
-    Generate prediksi untuk range bulan tertentu
-    
-    Args:
-        info_barang: Tuple dari database.get_data_barang()
-        start_month: datetime object (bulan awal)
-        end_month: datetime object (bulan akhir)
-    """
     id_barang = info_barang[0]
     nama_barang = info_barang[1]
     model_prediksi = info_barang[2]
@@ -219,14 +190,6 @@ def generate_prediksi_range(info_barang, start_month, end_month):
         else:
             raise ValueError("Model prediksi tidak dikenali (harus 'ARIMA' atau 'Mean')")
 
-        # ==== SIMPAN HASIL KE DATABASE ====
-        for idx, row in result.iterrows():
-            database.insert_hasil_prediksi(
-                id_barang=id_barang,
-                tanggal=row['tanggal'],
-                kuantitas=round(row['kuantitas'], 2)
-            )
-
         return {
             'status': 'generated',
             'message': f"Prediksi berhasil di-generate untuk {len(result)} bulan (Model: {used_model})",
@@ -242,26 +205,102 @@ def generate_prediksi_range(info_barang, start_month, end_month):
             'info': None
         }
 
-# ================================================
-# LEGACY FUNCTIONS (untuk backward compatibility)
-# ================================================
+def generate_prediksi(info_barang, base_date=None):
+    """
+    Generate prediksi OFFICIAL untuk 1 bulan ke depan (DISIMPAN ke DB)
+    Digunakan untuk proses akhir bulan
+    
+    Args:
+        info_barang: Tuple dari database.get_data_barang()
+        base_date: Tanggal referensi (default: datetime.now())
+    
+    Returns:
+        dict dengan status dan data prediksi
+    """
+    id_barang = info_barang[0]
+    nama_barang = info_barang[1]
+    model_prediksi = info_barang[2]
+    p = int(info_barang[3]) if pd.notna(info_barang[3]) else None
+    d = int(info_barang[4]) if pd.notna(info_barang[4]) else None
+    q = int(info_barang[5]) if pd.notna(info_barang[5]) else None
 
-def get_next_3_months():
-    """Legacy function - untuk kompatibilitas dengan code lama"""
-    today = datetime.now().date()
-    next_month = today.replace(day=1) + relativedelta(months=1)
-    return [next_month + relativedelta(months=i) for i in range(3)]
+    # Dapatkan list bulan yang akan diprediksi
+    target_dates = get_months_in_range(start_month, end_month)
 
-def check_prediksi(id_barang):
-    """Legacy function - untuk kompatibilitas dengan code lama"""
-    next_3 = get_next_3_months()
-    return check_prediksi_range(
-        id_barang,
-        next_3[0].strftime('%Y-%m-%d'),
-        next_3[2].strftime('%Y-%m-%d')
-    )
+    try:
+        # Generate untuk 1 BULAN ke depan saja
+        if model_prediksi == 'ARIMA':
+            if p is None or d is None or q is None:
+                raise ValueError("Order ARIMA (p, d, q) harus disediakan")
+            
+            result = prediksi_arima(id_barang, p, d, q, target_dates)
+            used_model = 'ARIMA'
+                    
+        elif model_prediksi == 'Mean':
+            result = prediksi_mean(id_barang, target_dates)
+            used_model = 'MEAN'
 
-def generate_prediksi(info_barang):
-    """Legacy function - untuk kompatibilitas dengan code lama"""
-    next_3 = get_next_3_months()
-    return generate_prediksi_range(info_barang, next_3[0], next_3[2])
+        else:
+            raise ValueError(f"Model prediksi tidak ditemukan")
+        
+        # SIMPAN ke database
+        for idx, row in result.iterrows():
+            database.insert_hasil_prediksi(
+                id_barang=id_barang,
+                tanggal=row['tanggal'],
+                kuantitas=round(row['kuantitas'], 2)
+            )
+
+        return {
+            'status': 'success',
+            'message': f"✓ Prediksi official berhasil (Model: {used_model})",
+            'data': result,
+            'model': used_model
+        }
+
+    except Exception as e:
+        return {
+            'status': 'error',
+            'message': f"✗ Error: {str(e)}",
+            'data': None
+        }
+
+def process_end_of_month():
+    """
+    Proses akhir bulan:
+    1. Generate prediksi 1 bulan ke depan untuk semua barang
+    2. Hitung safety stock & reorder point
+    3. Simpan rekomendasi stok
+    
+    Returns:
+        dict dengan summary hasil proses
+    """
+    
+    results = {
+        'prediksi_success': [],
+        'prediksi_failed': [],
+        'rekomendasi_success': [],
+        'rekomendasi_failed': []
+    }
+    
+    # 1. Generate prediksi untuk semua barang
+    barang_list = database.get_all_nama_barang()
+    
+    for idx, row in barang_list.iterrows():
+        nama = row['nama']
+        info_barang = database.get_data_barang(nama)
+        
+        try:
+            result = generate_prediksi(info_barang)
+            if result['status'] == 'success':
+                results['prediksi_success'].append(nama)
+            else:
+                results['prediksi_failed'].append((nama, result['message']))
+        except Exception as e:
+            results['prediksi_failed'].append((nama, str(e)))
+    
+    # 2. Hitung safety stock & reorder point
+    # (logic dari dashboard_stock.py)
+    # ... kode safety stock calculation ...
+    
+    return results

@@ -3,34 +3,27 @@ import pandas as pd
 from datetime import datetime
 import database
 
+st.set_page_config(page_title="Input Sales", page_icon="📊", layout="wide")
+
 st.title("📊 Upload Data Penjualan")
 st.write("Upload file CSV data penjualan untuk dimasukkan ke database")
     
 # Informasi format CSV
-with st.expander("ℹ️ Format File CSV"):
+with st.expander("ℹ️ Format File Excel"):
     st.write("""
-    Kolom yang diperlukan dalam file CSV:
-    - No Faktur
-    - Tgl Faktur
-    - Nama Pelanggan
-    - Keterangan Barang
-    - Kuantitas
-    - Jumlah
-            
-    **Catatan:** Nama barang di CSV harus sudah ada di tabel barang di database!
+    - Kolom: `No Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
+    - Nama Barang harus sudah ada di database
     """)
-        
-# Upload file
+    
 uploaded_file = st.file_uploader(
-    "Pilih file CSV",
-    type=['csv'],
-    help="Upload file CSV dengan format yang sesuai"
+    "Upload File Excel (.xlsx)",
+    type=['xlsx'],
+    help="Upload file Excel dengan format yang sesuai"
 )
         
 if uploaded_file is not None:
     try:
-        # Baca CSV
-        df = pd.read_csv(uploaded_file)
+        df = pd.read_excel(uploaded_file)
                 
         st.subheader("Preview Data")
         st.dataframe(df.head(10))
@@ -57,7 +50,7 @@ if uploaded_file is not None:
                         
     except Exception as e:
         st.error(f"❌ Error membaca file: {str(e)}")
-        st.info("Pastikan file CSV Anda memiliki format yang benar")
+        st.info("Pastikan file Excel Anda memiliki format yang benar")
 
     
         
@@ -88,3 +81,77 @@ if st.button("Tampilkan Data Penjualan"):
                 
     except Exception as e:
         st.error(f"Error: {str(e)}")
+
+    
+        
+
+
+
+# Divider
+st.divider()
+
+st.subheader("📅 Proses Akhir Bulan")
+
+st.markdown("""
+### 🎯 Tujuan Proses Ini:
+Setelah input laporan penjualan bulanan, klik button di bawah untuk:
+1. **Generate Prediksi Official** untuk bulan depan (disimpan di database)
+2. **Hitung Safety Stock & Reorder Point** untuk bulan depan
+3. **Simpan Rekomendasi Pembelian**
+
+⚠️ **Penting**: Jalankan proses ini SETELAH input semua data penjualan bulan ini!
+""")
+
+st.markdown("---")
+
+# Info data terakhir
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("📊 Status Data")
+    latest_penjualan = database.get_connection().cursor().execute(
+        "SELECT MAX(tgl_faktur) FROM penjualan"
+    ).fetchone()
+    st.info(f"Data penjualan terakhir: {latest_penjualan[0] if latest_penjualan else '-'}")
+
+with col2:
+    st.subheader("🔮 Prediksi Bulan Depan")
+    next_month = (datetime.now().replace(day=1) + pd.DateOffset(months=1)).strftime('%B %Y')
+    st.info(f"Akan generate prediksi untuk: **{next_month}**")
+
+st.markdown("---")
+
+# BUTTON UTAMA
+if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
+    
+    with st.spinner("Memproses..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # 1. Generate Prediksi
+        status_text.text("1/2: Generate prediksi untuk semua barang...")
+        progress_bar.progress(30)
+        
+        results = database.process_end_of_month()
+        
+        progress_bar.progress(100)
+        status_text.text("Selesai!")
+        
+        # Summary
+        st.success("✅ Proses akhir bulan selesai!")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("✅ Prediksi Berhasil", len(results['prediksi_success']))
+            st.metric("✅ Rekomendasi Berhasil", len(results['rekomendasi_success']))
+        
+        with col2:
+            st.metric("❌ Prediksi Gagal", len(results['prediksi_failed']))
+            st.metric("❌ Rekomendasi Gagal", len(results['rekomendasi_failed']))
+        
+        # Detail jika ada error
+        if results['prediksi_failed']:
+            with st.expander("❌ Detail Error Prediksi"):
+                for nama, error in results['prediksi_failed']:
+                    st.error(f"**{nama}**: {error}")

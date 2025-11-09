@@ -8,6 +8,8 @@ import os
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 
+st.set_page_config(page_title="Dashboard Sales", page_icon="📊", layout="wide")
+
 barang_df = database.get_all_nama_barang()
 barang = st.selectbox(
     "Pilih jenis barang", 
@@ -311,19 +313,3 @@ fig.update_yaxes(gridcolor='lightgray', gridwidth=0.5)
 fig.update_xaxes(gridcolor='lightgray', gridwidth=0.5)
 
 st.plotly_chart(fig, use_container_width=True)
-
-# ================================================
-# FOOTER INFO
-# ================================================
-
-# st.markdown("---")
-# st.caption(f"""
-# 💡 **Tips:**
-# - **Generate**: Pilih jumlah bulan yang ingin diprediksi dari bulan depan
-# - **Regenerate**: Update otomatis semua prediksi yang sudah ada dengan data penjualan terbaru
-# - Regenerate berguna ketika ada update data penjualan dan ingin memperbaharui prediksi
-# - Prediksi disimpan di database dan bisa di-update kapan saja
-# """)
-
-# # Last update info
-# st.caption(f"🕒 Last viewed: {datetime.now().strftime('%d %B %Y, %H:%M:%S')}")
