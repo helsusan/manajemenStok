@@ -21,18 +21,15 @@ st.header(f"Penjualan {barang}")
 info_barang = database.get_data_barang(barang)
 
 # ================================================
-# SECTION GENERATE & REGENERATE
+# SECTION GENERATE PREDIKSI SEMENTARA (TIDAK DISIMPAN)
 # ================================================
 
-# Cek prediksi yang sudah ada
-existing_prediksi = database.get_data_prediksi(info_barang[0])
+st.markdown("### 🔮 Generate Prediksi (Sementara)")
+st.info("💡 Prediksi ini hanya untuk visualisasi dan TIDAK akan disimpan ke database")
 
 col1, col2 = st.columns(2)
 
-# ===== BUTTON 1: GENERATE =====
 with col1:
-    st.markdown("**🎯 Generate Prediksi Baru**")
-    
     # Slider untuk pilih berapa bulan ke depan
     months_ahead = st.slider(
         "Berapa bulan ke depan?",
@@ -41,108 +38,39 @@ with col1:
         value=3,
         help="Pilih jumlah bulan yang akan diprediksi dari bulan depan"
     )
-    
+
+with col2:
     # Hitung range
     next_month = datetime.now().replace(day=1) + relativedelta(months=1)
     end_month = next_month + relativedelta(months=months_ahead-1)
-    
     st.caption(f"📅 Range: {next_month.strftime('%b %Y')} - {end_month.strftime('%b %Y')}")
-    
-    btn_generate = st.button(
-        f"📊 Generate {months_ahead} Bulan",
-        use_container_width=True,
-        type="primary",
-        help=f"Generate prediksi untuk {months_ahead} bulan ke depan"
-    )
 
-# ===== BUTTON 2: REGENERATE =====
-with col2:
-    st.markdown("**🔄 Regenerate Prediksi**")
-    
-    if len(existing_prediksi) > 0:
-        # Ambil bulan terakhir prediksi yang ada
-        last_pred_month = existing_prediksi.index.max()
-        
-        # Hitung dari bulan depan sampai bulan terakhir prediksi
-        next_month = datetime.now().replace(day=1) + relativedelta(months=1)
-        
-        # Convert ke datetime untuk perbandingan
-        if not isinstance(last_pred_month, datetime):
-            last_pred_month = datetime.combine(last_pred_month, datetime.min.time())
-        
-        # Hitung jumlah bulan
-        months_to_regen = (last_pred_month.year - next_month.year) * 12 + (last_pred_month.month - next_month.month) + 1
-        
-        if months_to_regen > 0:
-            st.caption(f"📅 Range: {next_month.strftime('%b %Y')} - {last_pred_month.strftime('%b %Y')}")
-            st.caption(f"⚡ Total: {months_to_regen} bulan akan di-update")
-            
-            btn_regenerate = st.button(
-                f"🔄 Regenerate ({months_to_regen} bulan)",
-                use_container_width=True,
-                type="secondary",
-                help=f"Update ulang semua prediksi yang sudah ada"
-            )
-        else:
-            st.caption("⚠️ Tidak ada prediksi masa depan")
-            btn_regenerate = st.button(
-                "🔄 Regenerate",
-                use_container_width=True,
-                type="secondary",
-                disabled=True,
-                help="Belum ada prediksi untuk bulan depan"
-            )
-    else:
-        st.caption("⚠️ Belum ada prediksi")
-        btn_regenerate = st.button(
-            "🔄 Regenerate",
-            use_container_width=True,
-            type="secondary",
-            disabled=True,
-            help="Belum ada data prediksi di database"
-        )
+btn_generate_temp = st.button(
+    f"📊 Generate Prediksi {months_ahead} Bulan",
+    use_container_width=True,
+    type="primary",
+    help=f"Generate prediksi sementara untuk visualisasi (tidak disimpan)"
+)
 
-# ===== HANDLE GENERATE =====
-if btn_generate:
-    next_month = datetime.now().replace(day=1) + relativedelta(months=1)
-    end_month = next_month + relativedelta(months=months_ahead-1)
-    
-    with st.spinner(f"Sedang generate prediksi {months_ahead} bulan ({next_month.strftime('%b %Y')} - {end_month.strftime('%b %Y')})..."):
-        result = prediction.generate_prediksi_range(
+# State untuk menyimpan prediksi sementara
+if 'temp_prediction' not in st.session_state:
+    st.session_state.temp_prediction = None
+
+# Handle generate prediksi sementara
+if btn_generate_temp:
+    with st.spinner(f"Sedang generate prediksi {months_ahead} bulan..."):
+        result = prediction.generate_prediksi_temp(
             info_barang,
             next_month,
             end_month
         )
         
-        if result['status'] == 'generated':
-            st.success(f"✅ {result['message']}")
-            st.rerun()
+        if result['status'] == 'success':
+            st.session_state.temp_prediction = result['data']
+            st.success(f"✅ Prediksi berhasil di-generate")
         else:
             st.error(f"❌ {result['message']}")
-
-# ===== HANDLE REGENERATE =====
-if 'btn_regenerate' in locals() and btn_regenerate:
-    next_month = datetime.now().replace(day=1) + relativedelta(months=1)
-    last_pred_month = existing_prediksi.index.max()
-    
-    # Convert ke datetime
-    if not isinstance(last_pred_month, datetime):
-        last_pred_month = datetime.combine(last_pred_month, datetime.min.time())
-    
-    months_to_regen = (last_pred_month.year - next_month.year) * 12 + (last_pred_month.month - next_month.month) + 1
-    
-    with st.spinner(f"Sedang regenerate {months_to_regen} bulan ({next_month.strftime('%b %Y')} - {last_pred_month.strftime('%b %Y')})..."):
-        result = prediction.generate_prediksi_range(
-            info_barang,
-            next_month,
-            last_pred_month
-        )
-        
-        if result['status'] == 'generated':
-            st.success(f"✅ Prediksi berhasil di-update untuk {months_to_regen} bulan!")
-            st.rerun()
-        else:
-            st.error(f"❌ {result['message']}")
+            st.session_state.temp_prediction = None
 
 st.markdown("---")
 
@@ -163,7 +91,7 @@ if len(penjualan_df) == 0:
     st.stop()
 
 # ================================================
-# METRICS (DINORMALISASI)
+# METRICS
 # ================================================
 
 current_date = datetime.now().date()
@@ -190,12 +118,13 @@ with col3:
         st.metric("🔮 Prediksi Bulan Depan", "-", help="Belum tersedia")
 
 with col4:
-    # Trend bulan lalu (hanya jika data bulan lalu ada)
+    # Trend bulan lalu
     if last_month in penjualan_df.index:
         last_month_val = penjualan_df.loc[last_month, 'kuantitas']
         
         # Cari bulan sebelumnya
         prev_month = last_month - relativedelta(months=1)
+        
         if prev_month in penjualan_df.index:
             prev_month_val = penjualan_df.loc[prev_month, 'kuantitas']
             delta = ((last_month_val - prev_month_val) / prev_month_val * 100) if prev_month_val != 0 else 0
@@ -232,10 +161,6 @@ st.markdown("---")
 # CHART PLOTLY
 # ================================================
 
-# Cek apakah ada data prediksi untuk ditampilkan
-if len(prediksi_df) == 0:
-    st.info("💡 Belum ada data prediksi. Gunakan tombol Generate di atas untuk membuat prediksi.")
-
 fig = go.Figure()
 
 # Trace 1: Actual Sales (Data Historis)
@@ -249,16 +174,29 @@ fig.add_trace(go.Scatter(
     hovertemplate='<b>%{x}</b><br>Actual Sales: %{y:,.0f}<extra></extra>'
 ))
 
-# Trace 2: Predicted Sales (Data Prediksi) - hanya jika ada
+# Trace 2: Prediksi (dari database)
 if len(prediksi_df) > 0:
     fig.add_trace(go.Scatter(
         x=prediksi_df.index.map(lambda d: d.strftime('%Y-%m')),
         y=prediksi_df['kuantitas'].values,
         mode='lines+markers',
-        name='Predicted Sales',
+        name='Prediksi (Database)',
+        line=dict(color='#06D6A0', width=2, dash='dot'),
+        marker=dict(size=8, symbol='diamond'),
+        hovertemplate='<b>%{x}</b><br>Prediksi: %{y:,.0f}<extra></extra>'
+    ))
+
+# Trace 3: Prediksi Sementara (jika ada)
+if st.session_state.temp_prediction is not None:
+    temp_pred = st.session_state.temp_prediction
+    fig.add_trace(go.Scatter(
+        x=temp_pred['tanggal'].map(lambda d: d.strftime('%Y-%m')),
+        y=temp_pred['kuantitas'].values,
+        mode='lines+markers',
+        name='Prediksi Sementara (Visualisasi)',
         line=dict(color='#F77F00', width=2, dash='dash'),
         marker=dict(size=10),
-        hovertemplate='<b>%{x}</b><br>Predicted Sales: %{y:,.0f}<extra></extra>'
+        hovertemplate='<b>%{x}</b><br>Prediksi Temp: %{y:,.0f}<extra></extra>'
     ))
 
 # Vertical line untuk marking "bulan ini"
@@ -272,11 +210,13 @@ fig.add_vline(
     annotation_position="top"
 )
 
-# Gabungkan semua tanggal dari penjualan dan prediksi
+# Gabungkan semua tanggal
+all_dates = penjualan_df.index
 if len(prediksi_df) > 0:
-    all_dates = penjualan_df.index.union(prediksi_df.index)
-else:
-    all_dates = penjualan_df.index
+    all_dates = all_dates.union(prediksi_df.index)
+if st.session_state.temp_prediction is not None:
+    temp_dates = pd.DatetimeIndex(st.session_state.temp_prediction['tanggal'])
+    all_dates = all_dates.union(temp_dates)
 
 # Layout
 fig.update_xaxes(
@@ -313,3 +253,12 @@ fig.update_yaxes(gridcolor='lightgray', gridwidth=0.5)
 fig.update_xaxes(gridcolor='lightgray', gridwidth=0.5)
 
 st.plotly_chart(fig, use_container_width=True)
+
+# Keterangan
+st.markdown("---")
+st.markdown("""
+### 📖 Keterangan:
+- **Actual Sales (Biru)**: Data penjualan historis dari database
+- **Prediksi (Hijau)**: Prediksi yang tersimpan di database (hasil dari Proses Akhir Bulan)
+- **Prediksi Sementara (Orange)**: Prediksi untuk visualisasi saja, tidak disimpan ke database
+""")

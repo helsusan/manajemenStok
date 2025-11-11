@@ -20,6 +20,26 @@ def run_query(query):
     conn.close()
     return result
 
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA BARANG
+# ================================================
+
+def get_all_nama_barang():
+    conn = get_connection()
+    query = "SELECT nama FROM barang"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
 def get_data_barang(nama_barang):
     try:
         conn = get_connection()
@@ -38,6 +58,26 @@ def get_data_barang(nama_barang):
         st.error(f"Error mencari barang: {e}")
         return None
     
+def get_all_data_barang():
+    conn = get_connection()
+    query = "SELECT * FROM barang"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA PENJUALAN
+# ================================================
+
 def insert_data_penjualan(df):
     conn = get_connection()
     cursor = conn.cursor()
@@ -103,13 +143,6 @@ def insert_data_penjualan(df):
         conn.close()
         errors.append(str(e))
         return 0, df.shape[0], errors
-    
-def get_all_nama_barang():
-    conn = get_connection()
-    query = "SELECT nama FROM barang"
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
 
 def get_all_data_penjualan(id_barang):
     conn = get_connection()
@@ -143,11 +176,8 @@ def get_all_data_penjualan(id_barang):
         
     return df
 
-def get_data_penjualan(id_barang, start_date=None):
+def get_data_penjualan_with_start_date(id_barang, start_date):
     conn = get_connection()
-
-    # 3 bulan terakhir dari tanggal saat ini
-    start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
 
     query = """
     SELECT 
@@ -169,6 +199,210 @@ def get_data_penjualan(id_barang, start_date=None):
         df = df.set_index('tanggal')
         
     return df
+
+def get_last_12_data_penjualan(id_barang):
+    """
+    Ambil 12 bulan data penjualan terakhir untuk training model.
+    
+    LOGIC PENTING:
+    - Kalau bulan HISTORIS kosong (dalam range data real) → ISI DENGAN 0 (memang ga ada sales)
+    - Kalau bulan FUTURE kosong (di luar range data real) → BOLEH fill dengan prediksi
+    
+    Returns:
+        DataFrame dengan 12 bulan data (termasuk prediksi untuk future months)
+    """
+    # Tentukan range tanggal (12 bulan ke belakang dari bulan sekarang)
+    end_date = datetime.now().replace(day=1).date()
+    start_date = end_date - timedelta(days=365)
+
+    # Ambil data penjualan (HANYA yang ada di database)
+    penjualan = get_data_penjualan_with_start_date(id_barang, start_date.strftime('%Y-%m-%d'))
+
+    # Buat range bulan lengkap untuk 12 bulan
+    date_range = [d.date() for d in pd.date_range(start=start_date, end=end_date, freq='MS')]
+    
+    # Inisialisasi dengan 0 (asumsi awal: semua bulan tidak ada penjualan)
+    combined = pd.DataFrame(index=date_range, columns=['kuantitas'])
+    combined['kuantitas'] = 0
+    combined.index.name = 'tanggal'
+    
+    # === STEP 1: ISI DENGAN DATA PENJUALAN REAL ===
+    if len(penjualan) > 0:
+        if 'tanggal' in penjualan.columns:
+            penjualan = penjualan.set_index('tanggal')
+        penjualan = penjualan.sort_index()
+        
+        # Update HANYA untuk tanggal yang ada di data penjualan
+        for idx in penjualan.index:
+            if idx in combined.index:
+                combined.loc[idx, 'kuantitas'] = penjualan.loc[idx, 'kuantitas']
+    
+    # === STEP 2: TENTUKAN RANGE DATA HISTORIS ===
+    # Ambil SEMUA data penjualan untuk cari range real
+    all_penjualan = get_all_data_penjualan(id_barang)
+    
+    if len(all_penjualan) > 0:
+        # Tanggal penjualan PERTAMA dan TERAKHIR yang ada di database
+        first_sales_date = all_penjualan.index.min()
+        last_sales_date = all_penjualan.index.max()
+        
+        print(f"\n📊 RANGE DATA PENJUALAN REAL:")
+        print(f"   Pertama: {first_sales_date}")
+        print(f"   Terakhir: {last_sales_date}")
+        
+        # === STEP 3: FILL DENGAN PREDIKSI HANYA UNTUK FUTURE MONTHS ===
+        # Bulan yang perlu di-fill = bulan yang masih 0 DAN di luar range historis
+        future_months = []
+        for idx in combined.index:
+            # Kalau masih 0 DAN tanggalnya > last_sales_date = ini future month
+            if combined.loc[idx, 'kuantitas'] == 0 and idx > last_sales_date:
+                future_months.append(idx)
+        
+        print(f"\n🔮 FUTURE MONTHS yang perlu prediksi: {len(future_months)}")
+        if len(future_months) > 0:
+            print(f"   Range: {future_months[0]} - {future_months[-1]}")
+        
+        # Fill future months dengan prediksi (kalau ada)
+        if len(future_months) > 0:
+            prediksi = get_data_prediksi(
+                id_barang, 
+                future_months[0].strftime('%Y-%m-%d'),
+                future_months[-1].strftime('%Y-%m-%d')
+            )
+            
+            if len(prediksi) > 0:
+                if 'tanggal' in prediksi.columns:
+                    prediksi = prediksi.set_index('tanggal')
+                prediksi = prediksi.sort_index()
+                
+                # Update hanya untuk future months yang ada prediksinya
+                for idx in prediksi.index:
+                    if idx in future_months:
+                        combined.loc[idx, 'kuantitas'] = prediksi.loc[idx, 'kuantitas']
+                        print(f"   ✓ Fill {idx} dengan prediksi: {prediksi.loc[idx, 'kuantitas']:.2f}")
+        
+        # === STEP 4: BULAN HISTORIS YANG KOSONG TETAP 0 ===
+        # (sudah otomatis karena kita inisialisasi dengan 0)
+        historical_zeros = []
+        for idx in combined.index:
+            # Kalau masih 0 DAN dalam range historis (first <= idx <= last)
+            if combined.loc[idx, 'kuantitas'] == 0 and first_sales_date <= idx <= last_sales_date:
+                historical_zeros.append(idx)
+        
+        if len(historical_zeros) > 0:
+            print(f"\n⚠️  BULAN HISTORIS dengan 0 penjualan: {len(historical_zeros)}")
+            for zero_month in historical_zeros:
+                print(f"   • {zero_month}: TETAP 0 (memang tidak ada penjualan)")
+    
+    else:
+        print("⚠️  Tidak ada data penjualan historis")
+    
+    # Ambil 12 bulan terakhir saja
+    combined = combined.iloc[-12:]
+    combined['kuantitas'] = pd.to_numeric(combined['kuantitas'], errors='coerce').fillna(0)
+    
+    print("\n" + "=" * 60)
+    print("FINAL: LAST 12 DATA PENJUALAN")
+    print(combined)
+    print("=" * 60)
+
+    return combined
+
+def cek_data_penjualan_lengkap(df, base_date=None):
+    """
+    Mengecek apakah data penjualan memiliki bulan terakhir yang sesuai.
+    Misal: kalau base_date = 2025-12-01, maka data terakhir minimal harus ada sampai 2025-11-01.
+    """
+    if base_date is None:
+        base_date = datetime.now().date()
+        
+    if df.empty:
+        raise ValueError("Data penjualan kosong, tidak bisa melakukan prediksi.")
+        
+    # Ambil tanggal terakhir dari data penjualan
+    last_date = df.index.max()
+    
+    # Hitung tanggal minimal yang seharusnya ada
+    expected_last_date = (base_date.replace(day=1) - pd.DateOffset(months=1)).date()
+    
+    if last_date < expected_last_date:
+        raise ValueError(
+            f"Data penjualan belum lengkap. Data terakhir: {last_date}, "
+            f"seharusnya minimal ada data sampai {expected_last_date}."
+        )
+    
+    print(f"✅ Data penjualan lengkap sampai {last_date}")
+    return True
+
+def get_latest_penjualan_date():
+    conn = get_connection()
+    query = "SELECT MAX(tgl_faktur) as latest FROM penjualan"
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(query)
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    return result['latest'] if result['latest'] else None
+
+def check_data_penjualan_bulan_ini():
+    """
+    Cek apakah data penjualan bulan ini sudah ada
+    Returns:
+        dict: {
+            'exists': bool,
+            'last_date': date,
+            'current_month': date,
+            'message': str
+        }
+    """
+    from datetime import datetime
+    
+    latest_date = get_latest_penjualan_date()
+    current_month = datetime.now().replace(day=1).date()
+    
+    if not latest_date:
+        return {
+            'exists': False,
+            'last_date': None,
+            'current_month': current_month,
+            'message': 'Belum ada data penjualan di database'
+        }
+    
+    # Convert ke date jika datetime
+    if hasattr(latest_date, 'date'):
+        latest_date = latest_date.date()
+    
+    latest_month = latest_date.replace(day=1)
+    
+    if latest_month < current_month:
+        return {
+            'exists': False,
+            'last_date': latest_date,
+            'current_month': current_month,
+            'message': f'Data penjualan terakhir: {latest_date.strftime("%d %b %Y")}. Belum ada data untuk bulan {current_month.strftime("%B %Y")}'
+        }
+    
+    return {
+        'exists': True,
+        'last_date': latest_date,
+        'current_month': current_month,
+        'message': f'Data penjualan bulan ini sudah ada (terakhir: {latest_date.strftime("%d %b %Y")})'
+    }
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA PREDIKSI
+# ================================================
 
 def get_data_prediksi(id_barang, start_date=None, end_date=None):
     conn = get_connection()
@@ -195,70 +429,6 @@ def get_data_prediksi(id_barang, start_date=None, end_date=None):
         df = df.set_index('tanggal')
         
     return df
-
-def get_last_12_data_penjualan(id_barang):
-    # Tentukan range tanggal (12 bulan ke belakang dari bulan sekarang)
-    end_date = datetime.now().replace(day=1).date()
-    start_date = end_date - timedelta(days=365)
-
-    penjualan = get_data_penjualan(id_barang, start_date.strftime('%Y-%m-%d'))
-
-    # Buat range bulan lengkap
-    date_range = [d.date() for d in pd.date_range(start=start_date, end=end_date, freq='MS')]
-    
-    # FIX: Inisialisasi dengan 0, bukan NaN
-    combined = pd.DataFrame(index=date_range, columns=['kuantitas'])
-    combined['kuantitas'] = 0  # <-- INI YANG DITAMBAHKAN
-    combined.index.name = 'tanggal'
-        
-    # Fill dengan data penjualan
-    if len(penjualan) > 0:
-        if 'tanggal' in penjualan.columns:
-            penjualan = penjualan.set_index('tanggal')
-        penjualan = penjualan.sort_index()
-        
-        # FIX: Update hanya untuk tanggal yang ada di penjualan
-        for idx in penjualan.index:
-            if idx in combined.index:
-                combined.loc[idx, 'kuantitas'] = penjualan.loc[idx, 'kuantitas']
-        
-    # Fill missing values dengan data prediksi
-    missing_dates = combined[combined['kuantitas'] == 0].index
-    if len(missing_dates) > 0:
-        prediksi = get_data_prediksi(
-            id_barang, 
-            missing_dates.min().strftime('%Y-%m-%d'),
-            missing_dates.max().strftime('%Y-%m-%d')
-        )
-        
-        if len(prediksi) > 0:
-            if 'tanggal' in prediksi.columns:
-                prediksi = prediksi.set_index('tanggal')
-            prediksi = prediksi.sort_index()
-            
-            # FIX: Update hanya untuk tanggal yang ada di prediksi
-            for idx in prediksi.index:
-                if idx in combined.index and combined.loc[idx, 'kuantitas'] == 0:
-                    combined.loc[idx, 'kuantitas'] = prediksi.loc[idx, 'kuantitas']
-    
-    # Ambil 12 bulan terakhir saja
-    combined = combined.iloc[-12:]
-    combined['kuantitas'] = pd.to_numeric(combined['kuantitas'], errors='coerce').fillna(0)
-    
-    print("\nDATA PENJUALAN")
-    print(penjualan)
-    print("=" * 60)
-    print("DATA PREDIKSI")
-    if len(missing_dates) > 0 and 'prediksi' in locals():
-        print(prediksi)
-    else:
-        print("Tidak ada prediksi")
-    print("=" * 60)
-    print("LAST 12 DATA PENJUALAN")
-    print(combined)
-    print("=" * 60)
-
-    return combined
 
 def insert_hasil_prediksi(id_barang, tanggal, kuantitas):
     conn = get_connection()
@@ -297,18 +467,15 @@ def insert_hasil_prediksi(id_barang, tanggal, kuantitas):
 
 
 
+
+
+
+
 # ================================================
-# FUNGSI DATA STOK
+# DATA STOK
 # ================================================
 
 def insert_data_stok(df, tanggal):
-    """
-    Insert data stok dari DataFrame ke database
-    
-    Args:
-        df: DataFrame dengan kolom [Nama Barang, Gudang BJM, Gudang SBY]
-        tanggal: Date object atau string 'YYYY-MM-DD'
-    """
     conn = get_connection()
     cursor = conn.cursor()
     success_count = 0
@@ -323,7 +490,6 @@ def insert_data_stok(df, tanggal):
             if pd.isna(nama_barang):
                 raise Exception(f"Baris {index + 2}: Nama barang kosong")
             
-            # Cari id_barang
             barang_info = get_data_barang(nama_barang)
             
             if not barang_info:
@@ -332,14 +498,12 @@ def insert_data_stok(df, tanggal):
             id_barang = barang_info[0]
             gudang_bjm = row.get('BANJARMASIN', 0)
             gudang_sby = row.get('CENTRE', 0)
-            
-            # Validasi
+
             if pd.isna(gudang_bjm):
                 gudang_bjm = 0
             if pd.isna(gudang_sby):
                 gudang_sby = 0
             
-            # Convert tanggal
             if isinstance(tanggal, str):
                 tanggal_str = tanggal
             else:
@@ -384,7 +548,6 @@ def insert_data_stok(df, tanggal):
         return 0, df.shape[0], errors
 
 def get_all_data_stok():
-    """Ambil semua data stok, join dengan nama barang"""
     conn = get_connection()
     query = """
     SELECT s.tanggal, b.nama, s.gudang_bjm, s.gudang_sby,
@@ -402,7 +565,6 @@ def get_all_data_stok():
     return df
 
 def get_latest_stok_date():
-    """Ambil tanggal stok terbaru di database"""
     conn = get_connection()
     query = "SELECT MAX(tanggal) as latest FROM stok"
     cursor = conn.cursor(dictionary=True)
@@ -414,7 +576,6 @@ def get_latest_stok_date():
     return result['latest'] if result['latest'] else None
 
 def get_stok_by_date(tanggal):
-    """Ambil data stok pada tanggal tertentu"""
     conn = get_connection()
     query = """
     SELECT b.id, b.nama, s.gudang_bjm, s.gudang_sby,
@@ -427,8 +588,7 @@ def get_stok_by_date(tanggal):
     conn.close()
     return df
 
-def update_lead_time(id_barang, lead_time):
-    """Update lead time untuk barang tertentu"""
+def update_lead_time(id_barang, max_lead_time, avg_lead_time):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -440,23 +600,66 @@ def update_lead_time(id_barang, lead_time):
     if existing:
         update_query = """
         UPDATE rekomendasi_stok 
-        SET lead_time = %s
+        SET max_lead_time = %s, avg_lead_time = %s
         WHERE id_barang = %s
         """
-        cursor.execute(update_query, (lead_time, id_barang))
+        cursor.execute(update_query, (max_lead_time, avg_lead_time, id_barang))
     else:
         insert_query = """
-        INSERT INTO rekomendasi_stok (id_barang, lead_time)
+        INSERT INTO rekomendasi_stok (id_barang, max_lead_time, avg_lead_time)
         VALUES (%s, %s)
         """
-        cursor.execute(insert_query, (id_barang, lead_time))
+        cursor.execute(insert_query, (id_barang, max_lead_time, avg_lead_time))
     
     conn.commit()
     cursor.close()
     conn.close()
 
+def check_data_stok_hari_ini():
+    latest_date = get_latest_stok_date()
+    today = datetime.now().date()
+    
+    if not latest_date:
+        return {
+            'exists': False,
+            'last_date': None,
+            'today': today,
+            'message': 'Belum ada data stok di database'
+        }
+    
+    # Convert ke date jika datetime
+    if hasattr(latest_date, 'date'):
+        latest_date = latest_date.date()
+    
+    if latest_date < today:
+        return {
+            'exists': False,
+            'last_date': latest_date,
+            'today': today,
+            'message': f'Data stok terakhir: {latest_date.strftime("%d %b %Y")}. Belum ada data untuk hari ini ({today.strftime("%d %b %Y")})'
+        }
+    
+    return {
+        'exists': True,
+        'last_date': latest_date,
+        'today': today,
+        'message': f'Data stok hari ini sudah ada ({latest_date.strftime("%d %b %Y")})'
+    }
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA REKOMENDASI STOK
+# ================================================
+
 def get_rekomendasi_stok():
-    """Ambil data rekomendasi stok lengkap"""
     conn = get_connection()
     query = """
     SELECT r.*, b.nama
@@ -473,7 +676,6 @@ def get_rekomendasi_stok():
     return df
 
 def get_latest_rekomendasi_date():
-    """Ambil tanggal update terakhir rekomendasi stok"""
     conn = get_connection()
     query = "SELECT MAX(tgl_update) as latest FROM rekomendasi_stok"
     cursor = conn.cursor(dictionary=True)
@@ -484,9 +686,8 @@ def get_latest_rekomendasi_date():
     
     return result['latest'] if result['latest'] else None
 
-def insert_rekomendasi_stok(id_barang, lead_time, safety_stock, reorder_point, 
+def insert_rekomendasi_stok(id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point, 
                             stok_aktual, hasil_prediksi, saran_stok):
-    """Insert atau update rekomendasi stok"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -500,20 +701,20 @@ def insert_rekomendasi_stok(id_barang, lead_time, safety_stock, reorder_point,
     if existing:
         update_query = """
         UPDATE rekomendasi_stok 
-        SET lead_time = %s, safety_stock = %s, reorder_point = %s,
+        SET max_lead_time = %s, avg_lead_time = %s, safety_stock = %s, reorder_point = %s,
             tgl_update = %s, stok_aktual = %s, hasil_prediksi = %s, saran_stok = %s
         WHERE id_barang = %s
         """
-        cursor.execute(update_query, (lead_time, safety_stock, reorder_point, 
+        cursor.execute(update_query, (max_lead_time, avg_lead_time, safety_stock, reorder_point, 
                                      tgl_update, stok_aktual, hasil_prediksi, saran_stok, id_barang))
     else:
         insert_query = """
         INSERT INTO rekomendasi_stok 
-        (id_barang, lead_time, safety_stock, reorder_point, tgl_update, 
+        (id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point, tgl_update, 
          stok_aktual, hasil_prediksi, saran_stok)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(insert_query, (id_barang, lead_time, safety_stock, reorder_point,
+        cursor.execute(insert_query, (id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point,
                                      tgl_update, stok_aktual, hasil_prediksi, saran_stok))
     
     conn.commit()
@@ -521,11 +722,11 @@ def insert_rekomendasi_stok(id_barang, lead_time, safety_stock, reorder_point,
     conn.close()
 
 def get_barang_with_lead_time():
-    """Ambil semua barang dengan lead time nya"""
     conn = get_connection()
     query = """
     SELECT b.id, b.nama, 
-           COALESCE(r.lead_time, 7) as lead_time
+           COALESCE(r.max_lead_time, 7) as max_lead_time,
+           COALESCE(r.avg_lead_time, 7) as avg_lead_time
     FROM barang b
     LEFT JOIN rekomendasi_stok r ON b.id = r.id_barang
     ORDER BY b.nama

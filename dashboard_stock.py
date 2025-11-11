@@ -1,137 +1,15 @@
 import streamlit as st
 import database
 import pandas as pd
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
-import numpy as np
+from datetime import datetime
 
 st.set_page_config(page_title="Dashboard Stok", page_icon="📊", layout="wide")
 
-# st.title("📊 Rekomendasi Pembelian")
-
 # ================================================
-# HELPER FUNCTIONS - PERHITUNGAN STOK
+# STATUS DATA
 # ================================================
 
-def calculate_safety_stock_and_reorder(id_barang, lead_time):
-    """
-    Hitung Safety Stock dan Reorder Point berdasarkan data historis
-    
-    Returns:
-        dict: {
-            'avg_daily_usage': float,
-            'max_daily_usage': float,
-            'safety_stock': float,
-            'reorder_point': float
-        }
-    """
-    # Ambil data penjualan 12 bulan terakhir
-    penjualan = database.get_all_data_penjualan(id_barang)
-    
-    if len(penjualan) == 0:
-        return None
-    
-    # Hitung average daily usage (asumsi 30 hari per bulan)
-    avg_monthly_sales = penjualan['kuantitas'].mean()
-    avg_daily_usage = avg_monthly_sales / 30
-    
-    # Hitung maximum daily usage (dari bulan tertinggi)
-    max_monthly_sales = penjualan['kuantitas'].max()
-    max_daily_usage = max_monthly_sales / 30
-    
-    # Lead time dalam hari
-    avg_lead_time = lead_time
-    max_lead_time = lead_time * 1.5  # Asumsi worst case 150% dari lead time normal
-    
-    # Safety Stock = (Max daily usage × Max lead time) - (Avg daily usage × Avg lead time)
-    safety_stock = (max_daily_usage * max_lead_time) - (avg_daily_usage * avg_lead_time)
-    safety_stock = max(0, safety_stock)  # Tidak boleh negatif
-    
-    # Reorder Point = (Avg daily usage × Avg lead time) + Safety stock
-    reorder_point = (avg_daily_usage * avg_lead_time) + safety_stock
-    
-    return {
-        'avg_daily_usage': avg_daily_usage,
-        'max_daily_usage': max_daily_usage,
-        'safety_stock': round(safety_stock, 2),
-        'reorder_point': round(reorder_point, 2)
-    }
-
-def analyze_all_stock():
-    """
-    Analisis stok untuk semua barang dan update rekomendasi
-    """
-    # Ambil data barang dengan lead time
-    barang_list = database.get_barang_with_lead_time()
-    
-    # Ambil data stok terbaru
-    latest_stok_date = database.get_latest_stok_date()
-    
-    if not latest_stok_date:
-        return {'status': 'error', 'message': 'Belum ada data stok di database'}
-    
-    stok_latest = database.get_stok_by_date(latest_stok_date)
-    
-    results = []
-    
-    for idx, row in barang_list.iterrows():
-        id_barang = row['id']
-        nama_barang = row['nama']
-        lead_time = row['lead_time']
-        
-        # Hitung safety stock dan reorder point
-        calc_result = calculate_safety_stock_and_reorder(id_barang, lead_time)
-        
-        if calc_result is None:
-            continue
-        
-        # Ambil stok aktual
-        stok_row = stok_latest[stok_latest['id'] == id_barang]
-        stok_aktual = stok_row['total_stok'].values[0] if len(stok_row) > 0 else 0
-        stok_aktual = stok_aktual if not pd.isna(stok_aktual) else 0
-        
-        # Ambil prediksi bulan depan
-        next_month = datetime.now().replace(day=1) + relativedelta(months=1)
-        prediksi = database.get_data_prediksi(id_barang, 
-                                             next_month.strftime('%Y-%m-%d'),
-                                             next_month.strftime('%Y-%m-%d'))
-        
-        hasil_prediksi = prediksi['kuantitas'].values[0] if len(prediksi) > 0 else 0
-        
-        # Hitung saran stok
-        # Saran stok = Reorder point + Prediksi bulan depan - Stok aktual
-        saran_stok = calc_result['reorder_point'] + hasil_prediksi - stok_aktual
-        saran_stok = max(0, round(saran_stok, 2))
-        
-        # Simpan ke database
-        database.insert_rekomendasi_stok(
-            id_barang=id_barang,
-            lead_time=lead_time,
-            safety_stock=calc_result['safety_stock'],
-            reorder_point=calc_result['reorder_point'],
-            stok_aktual=stok_aktual,
-            hasil_prediksi=hasil_prediksi,
-            saran_stok=saran_stok
-        )
-        
-        results.append({
-            'nama': nama_barang,
-            'stok_aktual': stok_aktual,
-            'reorder_point': calc_result['reorder_point'],
-            'need_reorder': stok_aktual <= calc_result['reorder_point']
-        })
-    
-    return {
-        'status': 'success',
-        'message': f'Analisis selesai untuk {len(results)} barang',
-        'results': results
-    }
-
-# ================================================
-# INFO STATUS DATA
-# ================================================
-
-st.header("📅 Status Data Stok Terkini")
+st.header("📅 Status Data Terkini")
 
 col1, col2, col3 = st.columns(3)
 
@@ -152,198 +30,383 @@ latest_rekomendasi_date = database.get_latest_rekomendasi_date()
 with col2:
     if latest_rekomendasi_date:
         st.metric(
-            "🔄 Analisis Terakhir",
+            "🔄 Update Rekomendasi",
             latest_rekomendasi_date.strftime('%d %b %Y'),
-            help="Tanggal analisis rekomendasi terakhir"
+            help="Tanggal update rekomendasi terakhir (dari Proses Akhir Bulan)"
         )
     else:
-        st.metric("🔄 Analisis Terakhir", "-", help="Belum ada analisis")
+        st.metric("🔄 Update Rekomendasi", "-", help="Belum ada rekomendasi")
 
-# Status sinkronisasi
+# Status hari ini
+today = datetime.now().date()
 with col3:
-    if latest_stok_date and latest_rekomendasi_date:
-        if latest_stok_date.date() == latest_rekomendasi_date.date():
-            st.success("✅ Data Tersinkron")
-        elif latest_stok_date.date() > latest_rekomendasi_date.date():
-            st.warning("⚠️ Perlu Update Analisis")
+    if latest_stok_date:
+        if hasattr(latest_stok_date, 'date'):
+            latest_stok_date_only = latest_stok_date.date()
         else:
-            st.info("ℹ️ Analisis Lebih Baru")
-    else:
-        st.info("ℹ️ Belum ada data lengkap")
-
-# ================================================
-# BUTTON ANALISIS
-# ================================================
-
-col1, col2, col3 = st.columns([1, 2, 1])
-
-with col1:
-    btn_analyze = st.button(
-        "🔄 Analisis Stok Terbaru",
-        type="primary",
-        use_container_width=True,
-        help="Hitung ulang safety stock, reorder point, dan saran pembelian"
-    )
-
-if btn_analyze:
-    if not latest_stok_date:
-        st.error("❌ Belum ada data stok. Silakan input data stok terlebih dahulu.")
-    else:
-        with st.spinner("Menganalisis data stok..."):
-            result = analyze_all_stock()
+            latest_stok_date_only = latest_stok_date
             
-            if result['status'] == 'success':
-                st.success(f"✅ {result['message']}")
-                
-                # Hitung barang yang perlu reorder
-                need_reorder_count = sum(1 for r in result['results'] if r['need_reorder'])
-                
-                if need_reorder_count > 0:
-                    st.warning(f"⚠️ {need_reorder_count} barang mencapai reorder point!")
-                else:
-                    st.info("✅ Semua stok barang masih aman")
-                
-                st.rerun()
-            else:
-                st.error(f"❌ {result['message']}")
+        if latest_stok_date_only == today:
+            st.success("✅ Stok Hari Ini Ada")
+        else:
+            st.warning("⚠️ Belum Input Stok Hari Ini")
+    else:
+        st.error("❌ Belum Ada Data Stok")
 
 st.markdown("---")
 
 # ================================================
-# TABEL REKOMENDASI PEMBELIAN
+# PENGECEKAN STOK HARIAN
 # ================================================
 
-st.header("🛒 Rekomendasi Pembelian")
+st.header("🔍 Pengecekan Stok Harian")
 
-rekomendasi = database.get_rekomendasi_stok()
+st.markdown("""
+### 🎯 Apa yang dilakukan button ini?
 
-if len(rekomendasi) > 0:
-    # Filter: Hanya barang yang mencapai reorder point
-    need_reorder = rekomendasi[rekomendasi['stok_aktual'] <= rekomendasi['reorder_point']].copy()
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        show_all = st.checkbox("Tampilkan semua barang", value=False, 
-                               help="Centang untuk melihat semua barang, tidak hanya yang perlu reorder")
-    
-    with col2:
-        st.metric("⚠️ Perlu Reorder", len(need_reorder))
-    
-    # Pilih data yang akan ditampilkan
-    display_data = rekomendasi if show_all else need_reorder
-    
-    if len(display_data) > 0:
-        # Format data untuk display
-        display_data = display_data.copy()
-        display_data['status'] = display_data.apply(
-            lambda row: '🔴 REORDER!' if row['stok_aktual'] <= row['reorder_point'] else '✅ Aman',
-            axis=1
-        )
+Button ini akan:
+1. **Mengecek** apakah data stok hari ini sudah diinput
+2. **Membandingkan** stok aktual dengan reorder point (dari database)
+3. **Menampilkan** daftar barang yang perlu dibeli/reorder
+
+⚠️ **PENTING**: 
+- Pastikan sudah input data stok hari ini di halaman **Data Stok**
+- Data rekomendasi berasal dari **Proses Akhir Bulan** di halaman Data Penjualan
+""")
+
+st.markdown("---")
+
+# Cek data stok hari ini
+check_stok = database.check_data_stok_hari_ini()
+
+st.subheader("📊 Status Pengecekan")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("**Data Stok Hari Ini:**")
+    if check_stok['exists']:
+        st.success(f"✅ {check_stok['message']}")
+    else:
+        st.warning(f"⚠️ {check_stok['message']}")
+        st.error("**PERHATIAN**: Input data stok hari ini dulu!")
+
+with col2:
+    st.markdown("**Data Rekomendasi:**")
+    if latest_rekomendasi_date:
+        st.success(f"✅ Rekomendasi tersedia (Update: {latest_rekomendasi_date.strftime('%d %b %Y')})")
+    else:
+        st.error("❌ Belum ada data rekomendasi")
+        st.info("💡 Jalankan Proses Akhir Bulan di halaman Data Penjualan")
+
+st.markdown("---")
+
+# Button pengecekan
+col1, col2, col3 = st.columns([1, 2, 1])
+
+with col2:
+    btn_check_stock = st.button(
+        "🔍 Jalankan Pengecekan Stok Harian",
+        type="primary",
+        use_container_width=True,
+        disabled=not check_stok['exists'] or not latest_rekomendasi_date,
+        help="Bandingkan stok aktual hari ini dengan reorder point"
+    )
+
+if btn_check_stock:
+    with st.spinner("🔄 Mengecek stok..."):
+        # Ambil data stok hari ini
+        stok_hari_ini = database.get_stok_by_date(check_stok['last_date'])
         
-        # Urutkan: yang perlu reorder di atas
-        display_data = display_data.sort_values(
-            by=['stok_aktual', 'reorder_point'],
-            ascending=[True, False]
-        )
+        # Ambil data rekomendasi (reorder point)
+        rekomendasi = database.get_rekomendasi_stok()
         
-        # Pilih kolom yang akan ditampilkan
-        cols_to_show = [
-            'status', 'nama', 'stok_aktual', 'reorder_point', 
-            'safety_stock', 'hasil_prediksi', 'saran_stok', 'lead_time'
-        ]
-        
-        st.dataframe(
-            display_data[cols_to_show],
-            use_container_width=True,
-            column_config={
-                "status": st.column_config.TextColumn("Status", width="small"),
-                "nama": st.column_config.TextColumn("Nama Barang", width="medium"),
-                "stok_aktual": st.column_config.NumberColumn("Stok Aktual", format="%d"),
-                "reorder_point": st.column_config.NumberColumn("Reorder Point", format="%.2f"),
-                "safety_stock": st.column_config.NumberColumn("Safety Stock", format="%.2f"),
-                "hasil_prediksi": st.column_config.NumberColumn("Prediksi Bulan Depan", format="%.2f"),
-                "saran_stok": st.column_config.NumberColumn("Saran Pembelian", format="%.2f", 
-                    help="Jumlah yang disarankan untuk dibeli"),
-                "lead_time": st.column_config.NumberColumn("Lead Time (hari)", format="%d")
-            },
-            hide_index=True
-        )
-        
-        # Summary
-        if not show_all:
-            st.markdown("---")
-            st.subheader("📋 Ringkasan Rekomendasi")
+        if len(stok_hari_ini) == 0 or len(rekomendasi) == 0:
+            st.error("❌ Data tidak lengkap untuk pengecekan")
+        else:
+            # Gabungkan data
+            merged = pd.merge(
+                stok_hari_ini,
+                rekomendasi[['id_barang', 'avg_lead_time', 'max_lead_time', 'reorder_point', 
+                            'safety_stock', 'hasil_prediksi']],
+                left_on='id',
+                right_on='id_barang',
+                how='inner'
+            )
             
-            total_saran = display_data['saran_stok'].sum()
+            # Filter: hanya yang perlu reorder (stok <= reorder point)
+            need_reorder = merged[merged['total_stok'] <= merged['reorder_point']].copy()
+            
+            # Hitung saran pembelian
+            need_reorder['saran_pembelian'] = (
+                need_reorder['reorder_point'] + 
+                need_reorder['hasil_prediksi'] - 
+                need_reorder['total_stok']
+            ).clip(lower=0).round(2)
+            
+            # Sort berdasarkan urgency (stok paling sedikit di atas)
+            need_reorder = need_reorder.sort_values('total_stok')
+            
+            # Tampilkan hasil
+            st.success("✅ Pengecekan selesai!")
+            
+            st.markdown("---")
+            st.subheader("📋 Hasil Pengecekan")
             
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Total Barang Perlu Reorder", len(display_data))
+                st.metric("Total Barang Dicek", len(merged))
             
             with col2:
-                st.metric("Total Saran Pembelian", f"{total_saran:,.0f}")
+                st.metric("⚠️ Perlu Reorder", len(need_reorder), 
+                         delta=f"{(len(need_reorder)/len(merged)*100):.1f}%")
             
             with col3:
-                avg_lead_time = display_data['lead_time'].mean()
-                st.metric("Rata-rata Lead Time", f"{avg_lead_time:.1f} hari")
-    else:
-        st.success("✅ Tidak ada barang yang perlu reorder saat ini!")
-        st.balloons()
+                st.metric("✅ Stok Aman", len(merged) - len(need_reorder))
+            
+            st.markdown("---")
+            
+            # Tabel barang yang perlu reorder
+            if len(need_reorder) > 0:
+                st.subheader("🛒 Barang yang Perlu Dibeli")
+                st.warning(f"**{len(need_reorder)} barang** mencapai atau di bawah reorder point!")
+                
+                # Format untuk display
+                display_cols = [
+                    'nama', 'total_stok', 'reorder_point', 'safety_stock',
+                    'hasil_prediksi', 'saran_pembelian', 'avg_lead_time', 'max_lead_time'
+                ]
+                
+                st.dataframe(
+                    need_reorder[display_cols],
+                    use_container_width=True,
+                    column_config={
+                        "nama": "Nama Barang",
+                        "total_stok": st.column_config.NumberColumn(
+                            "Stok Aktual", 
+                            format="%d",
+                            help="Stok saat ini di gudang"
+                        ),
+                        "reorder_point": st.column_config.NumberColumn(
+                            "Reorder Point", 
+                            format="%.2f",
+                            help="Batas minimum stok sebelum perlu order"
+                        ),
+                        "safety_stock": st.column_config.NumberColumn(
+                            "Safety Stock", 
+                            format="%.2f",
+                            help="Buffer stok untuk antisipasi"
+                        ),
+                        "hasil_prediksi": st.column_config.NumberColumn(
+                            "Prediksi Bulan Depan", 
+                            format="%.2f",
+                            help="Estimasi penjualan bulan depan"
+                        ),
+                        "saran_pembelian": st.column_config.NumberColumn(
+                            "🛒 Saran Pembelian", 
+                            format="%.2f",
+                            help="Jumlah yang disarankan untuk dibeli"
+                        ),
+                        "avg_lead_time": st.column_config.NumberColumn(
+                            "Avg Lead Time", 
+                            format="%d hari",
+                            help="Lead time rata-rata"
+                        ),
+                        "max_lead_time": st.column_config.NumberColumn(
+                            "Max Lead Time", 
+                            format="%d hari",
+                            help="Lead time maksimum (worst case)"
+                        )
+                    },
+                    hide_index=True
+                )
+                
+                # Summary pembelian
+                st.markdown("---")
+                st.subheader("💰 Ringkasan Saran Pembelian")
+                
+                total_saran = need_reorder['saran_pembelian'].sum()
+                avg_avg_lead_time = need_reorder['avg_lead_time'].mean()
+                avg_max_lead_time = need_reorder['max_lead_time'].mean()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Unit Disarankan", f"{total_saran:,.0f}")
+                
+                with col2:
+                    st.metric("Rata-rata Avg Lead Time", f"{avg_avg_lead_time:.1f} hari")
+                
+                with col3:
+                    st.metric("Rata-rata Max Lead Time", f"{avg_max_lead_time:.1f} hari")
+                
+                with col4:
+                    max_lead = need_reorder['max_lead_time'].max()
+                    st.metric("Lead Time Terlama", f"{max_lead} hari")
+                
+                # Info penting
+                st.info("""
+                💡 **Tips Pembelian:**
+                - Prioritaskan barang dengan **stok terendah** (paling atas tabel)
+                - Perhatikan **Lead Time** - order lebih awal untuk barang dengan lead time lama
+                - **Saran Pembelian** sudah memperhitungkan prediksi demand bulan depan
+                - **Max Lead Time** digunakan untuk perhitungan safety stock (antisipasi worst case)
+                """)
+                
+            else:
+                st.success("🎉 Semua stok barang masih aman!")
+                st.info("✅ Tidak ada barang yang perlu direorder saat ini")
+                st.balloons()
 
-else:
-    st.info("💡 Belum ada data rekomendasi. Klik tombol 'Analisis Stok Terbaru' untuk memulai.")
+st.markdown("---")
+
+# ================================================
+# TABEL REKOMENDASI LENGKAP (OPSIONAL)
+# ================================================
+
+with st.expander("📊 Lihat Semua Data Rekomendasi"):
+    rekomendasi_all = database.get_rekomendasi_stok()
+    
+    if len(rekomendasi_all) > 0:
+        # Tambahkan status
+        rekomendasi_all['status'] = rekomendasi_all.apply(
+            lambda row: '🔴 REORDER!' if row['stok_aktual'] <= row['reorder_point'] else '✅ Aman',
+            axis=1
+        )
+        
+        cols_to_show = [
+            'status', 'nama', 'stok_aktual', 'reorder_point', 
+            'safety_stock', 'hasil_prediksi', 'saran_stok', 
+            'avg_lead_time', 'max_lead_time', 'tgl_update'
+        ]
+        
+        st.dataframe(
+            rekomendasi_all[cols_to_show],
+            use_container_width=True,
+            column_config={
+                "avg_lead_time": st.column_config.NumberColumn("Avg Lead Time", format="%d hari"),
+                "max_lead_time": st.column_config.NumberColumn("Max Lead Time", format="%d hari"),
+            },
+            hide_index=True
+        )
+    else:
+        st.info("Belum ada data rekomendasi. Jalankan Proses Akhir Bulan terlebih dahulu.")
 
 # ================================================
 # INFORMASI PERHITUNGAN
 # ================================================
 
-# st.markdown("---")
-# st.subheader("📖 Informasi Perhitungan")
+st.markdown("---")
+st.subheader("📖 Cara Kerja Perhitungan")
 
-# with st.expander("🔍 Cara Kerja Perhitungan"):
-#     st.markdown("""
-#     ### Formula yang Digunakan:
+with st.expander("🔍 Formula dan Penjelasan"):
+    st.markdown("""
+    ### 📐 Formula yang Digunakan:
     
-#     1. **Average Daily Usage**
-#        - Rata-rata penjualan per hari = (Rata-rata penjualan bulanan) / 30
+    #### 1. Average Daily Usage
+    ```
+    Average Daily Usage = (Rata-rata Penjualan Bulanan) / 30 hari
+    ```
     
-#     2. **Safety Stock**
-#        ```
-#        Safety Stock = (Maximum daily usage × Maximum lead time) 
-#                     - (Average daily usage × Average lead time)
-#        ```
-#        - Maximum lead time diasumsikan 150% dari lead time normal
+    #### 2. Maximum Daily Usage
+    ```
+    Maximum Daily Usage = (Penjualan Bulanan Tertinggi) / 30 hari
+    ```
     
-#     3. **Reorder Point**
-#        ```
-#        Reorder Point = (Average daily usage × Average lead time) + Safety Stock
-#        ```
+    #### 3. Safety Stock
+    ```
+    Safety Stock = (Max Daily Usage × Max Lead Time) - (Avg Daily Usage × Avg Lead Time)
+    ```
+    **Penjelasan:**
+    - Menggunakan **Max Lead Time** untuk worst case scenario
+    - Safety stock = buffer untuk mengantisipasi:
+      - Keterlambatan pengiriman (lead time lebih lama)
+      - Lonjakan demand mendadak
     
-#     4. **Saran Pembelian**
-#        ```
-#        Saran Stok = Reorder Point + Prediksi Bulan Depan - Stok Aktual
-#        ```
+    #### 4. Reorder Point
+    ```
+    Reorder Point = (Avg Daily Usage × Avg Lead Time) + Safety Stock
+    ```
+    **Penjelasan:**
+    - Menggunakan **Avg Lead Time** untuk kondisi normal
+    - Plus safety stock sebagai buffer
     
-#     ### Status Reorder:
-#     - 🔴 **REORDER**: Stok aktual ≤ Reorder point → Perlu segera pesan!
-#     - ✅ **Aman**: Stok aktual > Reorder point → Stok masih mencukupi
+    #### 5. Saran Pembelian
+    ```
+    Saran Pembelian = Reorder Point + Prediksi Bulan Depan - Stok Aktual
+    ```
     
-#     ### Catatan:
-#     - Data penjualan historis 12 bulan terakhir digunakan untuk perhitungan
-#     - Lead time dapat disesuaikan per barang di halaman Data Stok
-#     - Analisis perlu di-update setiap ada data stok baru
-#     """)
+    ---
+    
+    ### 🎯 Contoh Perhitungan Lengkap:
+    
+    **Data:**
+    - Rata-rata penjualan: 300 unit/bulan
+    - Penjualan tertinggi: 450 unit/bulan
+    - Avg Lead Time: 7 hari
+    - Max Lead Time: 10 hari
+    - Stok aktual: 50 unit
+    - Prediksi bulan depan: 320 unit
+    
+    **Step 1:** Hitung daily usage
+    ```
+    Avg Daily Usage = 300 / 30 = 10 unit/hari
+    Max Daily Usage = 450 / 30 = 15 unit/hari
+    ```
+    
+    **Step 2:** Hitung Safety Stock
+    ```
+    Safety Stock = (15 × 10) - (10 × 7)
+                 = 150 - 70
+                 = 80 unit
+    ```
+    
+    **Step 3:** Hitung Reorder Point
+    ```
+    Reorder Point = (10 × 7) + 80
+                  = 70 + 80
+                  = 150 unit
+    ```
+    
+    **Step 4:** Hitung Saran Pembelian
+    ```
+    Saran = 150 + 320 - 50
+          = 420 unit
+    ```
+    
+    **Kesimpulan:**
+    - Ketika stok mencapai **150 unit**, segera order!
+    - Disarankan beli **420 unit** untuk:
+      - Mencapai reorder point (150)
+      - Memenuhi prediksi demand bulan depan (320)
+      - Dikurangi stok yang ada (50)
+    
+    ---
+    
+    ### 💡 Mengapa Ada 2 Jenis Lead Time?
+    
+    **Avg Lead Time:**
+    - Untuk perhitungan reorder point (kondisi normal)
+    - Lebih realistic untuk operasional sehari-hari
+    - Contoh: Biasanya barang datang dalam 7 hari
+    
+    **Max Lead Time:**
+    - Untuk perhitungan safety stock (worst case)
+    - Antisipasi keterlambatan atau masalah pengiriman
+    - Contoh: Pernah ada keterlambatan sampai 10 hari
+    
+    Dengan kombinasi ini, sistem menjadi:
+    - **Efisien**: Reorder point tidak terlalu tinggi (pakai avg)
+    - **Aman**: Safety stock cukup untuk antisipasi masalah (pakai max)
+    
+    ---
+    
+    ### ⚠️ Status Reorder:
+    - 🔴 **REORDER!**: Stok aktual ≤ Reorder Point → **Segera order!**
+    - ✅ **Aman**: Stok aktual > Reorder Point → Stok masih mencukupi
+    """)
 
-# # Footer
-# st.markdown("---")
-# st.caption(f"""
-# 💡 **Tips:**
-# - Lakukan analisis ulang setiap ada update data stok baru
-# - Perhatikan barang dengan status 🔴 REORDER untuk segera diorder
-# - Sesuaikan Lead Time di halaman Data Stok jika kondisi berubah
-# - Saran pembelian sudah memperhitungkan prediksi penjualan bulan depan
-# """)
-
-# st.caption(f"🕒 Last viewed: {datetime.now().strftime('%d %B %Y, %H:%M:%S')}")
+# Footer
+st.markdown("---")
+st.caption(f"🕒 Last viewed: {datetime.now().strftime('%d %B %Y, %H:%M:%S')}")

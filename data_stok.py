@@ -153,7 +153,11 @@ st.markdown("---")
 st.header("⏱️ Kelola Lead Time")
 
 st.markdown("""
-**Lead Time** adalah jeda waktu dari pemesanan produk ke supplier sampai barang sampai di Gudang Banjarmasin.
+**Lead Time** adalah jeda waktu dari pemesanan produk ke supplier sampai barang sampai di Gudang.
+
+- **Average Lead Time**: Waktu rata-rata pengiriman (dalam kondisi normal)
+- **Maximum Lead Time**: Waktu pengiriman terburuk (untuk perhitungan safety stock)
+
 Nilai ini mempengaruhi perhitungan Reorder Point dan Safety Stock.
 """)
 
@@ -163,6 +167,9 @@ barang_lead_time = database.get_barang_with_lead_time()
 if len(barang_lead_time) > 0:
     st.subheader("📝 Edit Lead Time per Barang")
     
+    # Info default
+    st.info("💡 Default: Avg Lead Time = 7 hari, Max Lead Time = 10 hari (jika belum diisi)")
+    
     # Buat editable dataframe
     edited_df = st.data_editor(
         barang_lead_time,
@@ -170,35 +177,62 @@ if len(barang_lead_time) > 0:
         column_config={
             "id": st.column_config.NumberColumn("ID", disabled=True),
             "nama": st.column_config.TextColumn("Nama Barang", disabled=True),
-            "lead_time": st.column_config.NumberColumn(
-                "Lead Time (hari)",
+            "avg_lead_time": st.column_config.NumberColumn(
+                "⏱️ Avg Lead Time (hari)",
                 min_value=1,
                 max_value=365,
                 step=1,
-                help="Jumlah hari dari pemesanan sampai barang tiba"
+                help="Lead time rata-rata dalam kondisi normal"
+            ),
+            "max_lead_time": st.column_config.NumberColumn(
+                "⏱️ Max Lead Time (hari)",
+                min_value=1,
+                max_value=365,
+                step=1,
+                help="Lead time maksimum (worst case scenario)"
             )
         },
         hide_index=True,
         num_rows="fixed"
     )
     
+    # Validasi: Max harus >= Avg
+    st.markdown("---")
+    st.markdown("### ⚠️ Validasi Data")
+    
+    validation_errors = []
+    for idx, row in edited_df.iterrows():
+        if row['max_lead_time'] < row['avg_lead_time']:
+            validation_errors.append(
+                f"❌ **{row['nama']}**: Max Lead Time ({row['max_lead_time']}) tidak boleh lebih kecil dari Avg Lead Time ({row['avg_lead_time']})"
+            )
+    
+    if validation_errors:
+        st.error("**Error Validasi:**")
+        for error in validation_errors:
+            st.error(error)
+        st.warning("⚠️ Perbaiki error di atas sebelum menyimpan!")
+    else:
+        st.success("✅ Semua data valid!")
+    
     # Tombol save
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
-        if st.button("💾 Simpan Perubahan Lead Time", type="primary", use_container_width=True):
+        if st.button("💾 Simpan Perubahan Lead Time", 
+                     type="primary", 
+                     use_container_width=True,
+                     disabled=len(validation_errors) > 0):
             with st.spinner("Menyimpan perubahan..."):
                 try:
                     for idx, row in edited_df.iterrows():
-                        database.update_lead_time(row['id'], row['lead_time'])
+                        database.update_lead_time(
+                            row['id'], 
+                            row['avg_lead_time'],
+                            row['max_lead_time']
+                        )
                     
                     st.success("✅ Lead time berhasil diupdate!")
-                    st.info("💡 Silakan lakukan analisis ulang di Dashboard Stok untuk update rekomendasi")
+                    st.info("💡 Silakan lakukan 'Proses Akhir Bulan' untuk update rekomendasi dengan lead time baru")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
-else:
-    st.info("💡 Belum ada data barang")
-
-# Footer
-st.markdown("---")
-st.caption(f"🕒 Last viewed: {datetime.now().strftime('%d %B %Y, %H:%M:%S')}")
