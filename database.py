@@ -94,6 +94,9 @@ def insert_data_penjualan(df):
                 raise Exception(f"Baris {index + 2}: Nama barang kosong")
             
             id_barang = get_data_barang(nama_barang)
+
+            if id_barang:
+                id_barang = id_barang[0]
             
             if not id_barang:
                 raise Exception(f"Baris {index + 2}: Barang '{nama_barang}' tidak ditemukan di database")
@@ -733,4 +736,264 @@ def get_barang_with_lead_time():
     """
     df = pd.read_sql(query, conn)
     conn.close()
+    return df
+
+def analyze_gudang_distribution():
+    """
+    Analisis distribusi stok antara Gudang SBY vs BJM.
+    
+    Deteksi kasus:
+    1. Stok total cukup, tapi masih banyak di SBY (perlu transfer)
+    2. Stok BJM sudah mencapai reorder point (urgent)
+    3. Stok BJM aman, tapi SBY menumpuk (warning)
+    
+    Returns:
+        dict: {
+            'need_transfer': list,      # Barang yang perlu transfer SBY -> BJM
+            'bjm_critical': list,        # Stok BJM kritis (perlu reorder/transfer urgent)
+            'sby_stockpile': list,       # Stok SBY menumpuk (perlu dimonitor)
+            'balanced': list             # Distribusi stok sudah baik
+        }
+    """
+    from datetime import datetime
+    
+    results = {
+        'need_transfer': [],
+        'bjm_critical': [],
+        'sby_stockpile': [],
+        'balanced': []
+    }
+    
+    # Ambil data stok terbaru
+    latest_stok_date = get_latest_stok_date()
+    if not latest_stok_date:
+        return results
+    
+    stok_data = get_stok_by_date(latest_stok_date)
+    
+    # Ambil data rekomendasi (untuk reorder point)
+    rekomendasi = get_rekomendasi_stok()
+    
+    if len(rekomendasi) == 0:
+        return results
+    
+    # Merge data
+    merged = pd.merge(
+        stok_data,
+        rekomendasi[['id_barang', 'reorder_point', 'safety_stock', 'hasil_prediksi']],
+        left_on='id',
+        right_on='id_barang',
+        how='inner'
+    )
+    
+    # Analisis setiap barang
+    for idx, row in merged.iterrows():
+        nama = row['nama']
+        bjm = row['gudang_bjm'] if not pd.isna(row['gudang_bjm']) else 0
+        sby = row['gudang_sby'] if not pd.isna(row['gudang_sby']) else 0
+        total = row['total_stok']
+        reorder_point = row['reorder_point']
+        safety_stock = row['safety_stock']
+        prediksi = row['hasil_prediksi']
+        
+        # Hitung ideal distribution (BJM harus punya minimal reorder point)
+        ideal_bjm = reorder_point
+        
+        # === CASE 1: BJM KRITIS (< reorder point) ===
+        if bjm <= reorder_point:
+            # Cek apakah ada stok di SBY yang bisa di-transfer
+            if sby > 0:
+                # Ada stok di SBY, HARUS transfer!
+                transfer_needed = min(sby, reorder_point - bjm)
+                urgency = 'URGENT' if bjm <= safety_stock else 'HIGH'
+                
+                results['need_transfer'].append({
+                    'nama': nama,
+                    'gudang_bjm': bjm,
+                    'gudang_sby': sby,
+                    'total_stok': total,
+                    'reorder_point': reorder_point,
+                    'transfer_needed': round(transfer_needed, 2),
+                    'urgency': urgency,
+                    'reason': f'BJM kritis ({bjm:.0f} < {reorder_point:.0f}), tapi ada {sby:.0f} di SBY'
+                })
+                
+                # Jika sangat kritis (< safety stock), masukkan juga ke bjm_critical
+                if bjm <= safety_stock:
+                    results['bjm_critical'].append({
+                        'nama': nama,
+                        'gudang_bjm': bjm,
+                        'gudang_sby': sby,
+                        'total_stok': total,
+                        'reorder_point': reorder_point,
+                        'safety_stock': safety_stock,
+                        'gap': round(reorder_point - bjm, 2),
+                        'reason': f'BJM sangat kritis! ({bjm:.0f} < safety stock {safety_stock:.0f})'
+                    })
+            else:
+                # Tidak ada stok di SBY, benar-benar perlu order
+                results['bjm_critical'].append({
+                    'nama': nama,
+                    'gudang_bjm': bjm,
+                    'gudang_sby': sby,
+                    'total_stok': total,
+                    'reorder_point': reorder_point,
+                    'safety_stock': safety_stock,
+                    'gap': round(reorder_point - bjm, 2),
+                    'reason': f'Tidak ada stok di SBY, perlu order! Gap: {(reorder_point - bjm):.0f} unit'
+                })
+        
+        # === CASE 2: BJM AMAN, tapi SBY MENUMPUK ===
+        elif bjm > reorder_point and sby > prediksi:
+            # BJM sudah aman, tapi SBY punya stok > prediksi bulan depan
+            # Ini warning untuk monitoring (mungkin tidak perlu transfer urgent)
+            results['sby_stockpile'].append({
+                'nama': nama,
+                'gudang_bjm': bjm,
+                'gudang_sby': sby,
+                'total_stok': total,
+                'reorder_point': reorder_point,
+                'prediksi': prediksi,
+                'reason': f'SBY menumpuk ({sby:.0f} > prediksi {prediksi:.0f}), BJM sudah aman'
+            })
+        
+        # === CASE 3: DISTRIBUSI SEIMBANG ===
+        else:
+            results['balanced'].append({
+                'nama': nama,
+                'gudang_bjm': bjm,
+                'gudang_sby': sby,
+                'total_stok': total,
+                'reorder_point': reorder_point
+            })
+    
+    return results
+
+
+def get_transfer_priority_list():
+    """
+    Generate daftar prioritas transfer dari SBY ke BJM.
+    Diurutkan berdasarkan urgency.
+    
+    Returns:
+        DataFrame dengan kolom: nama, bjm, sby, transfer_needed, urgency, reason
+    """
+    analysis = analyze_gudang_distribution()
+    
+    # Ambil data yang perlu transfer
+    need_transfer = analysis['need_transfer']
+    
+    if len(need_transfer) == 0:
+        return pd.DataFrame()
+    
+    # Convert ke DataFrame
+    df = pd.DataFrame(need_transfer)
+    
+    # Sort berdasarkan urgency (URGENT > HIGH) dan gudang_bjm (ascending)
+    urgency_order = {'URGENT': 0, 'HIGH': 1}
+    df['urgency_rank'] = df['urgency'].map(urgency_order)
+    df = df.sort_values(['urgency_rank', 'gudang_bjm'])
+    df = df.drop('urgency_rank', axis=1)
+    
+    return df
+
+
+def get_rekomendasi_stok_with_gudang():
+    """
+    Ambil data rekomendasi stok LENGKAP dengan info gudang.
+    Termasuk breakdown BJM vs SBY.
+    
+    Returns:
+        DataFrame dengan tambahan kolom: gudang_bjm, gudang_sby, distribution_status
+    """
+    # Ambil rekomendasi biasa
+    rekomendasi = get_rekomendasi_stok()
+    
+    if len(rekomendasi) == 0:
+        return rekomendasi
+    
+    # Ambil data stok terbaru
+    latest_stok_date = get_latest_stok_date()
+    if not latest_stok_date:
+        return rekomendasi
+    
+    stok_data = get_stok_by_date(latest_stok_date)
+    
+    # Merge
+    merged = pd.merge(
+        rekomendasi,
+        stok_data[['id', 'gudang_bjm', 'gudang_sby']],
+        left_on='id_barang',
+        right_on='id',
+        how='left'
+    )
+    
+    # Tambahkan status distribusi
+    def get_distribution_status(row):
+        bjm = row['gudang_bjm'] if not pd.isna(row['gudang_bjm']) else 0
+        sby = row['gudang_sby'] if not pd.isna(row['gudang_sby']) else 0
+        reorder = row['reorder_point']
+        
+        if bjm <= reorder and sby > 0:
+            return '⚠️ PERLU TRANSFER'
+        elif bjm <= reorder:
+            return '🔴 KRITIS'
+        elif sby > row['hasil_prediksi']:
+            return '📦 SBY MENUMPUK'
+        else:
+            return '✅ SEIMBANG'
+    
+    merged['distribution_status'] = merged.apply(get_distribution_status, axis=1)
+    
+    # Update stok_aktual dengan breakdown
+    merged['stok_aktual'] = merged['gudang_bjm'] + merged['gudang_sby']
+    
+    return merged
+
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+
+def clean_excel_apostrophe(df):
+    """
+    Membersihkan apostrof (') di awal string pada seluruh cell
+    dan juga pada nama kolom DataFrame.
+    """
+    
+    def clean_value(value):
+        # Handle NaN/None
+        if pd.isna(value):
+            return None
+        
+        # Convert ke string dan strip
+        str_value = str(value).strip()
+        
+        # Remove leading apostrophe
+        if str_value.startswith("'"):
+            str_value = str_value[1:]
+        
+        return str_value if str_value else None
+
+    # Copy df agar tidak ubah yang asli
+    df = df.copy()
+
+    # --- Bersihkan Nama Kolom ---
+    df.columns = [
+        col[1:] if isinstance(col, str) and col.startswith("'") else col
+        for col in df.columns
+    ]
+
+    # --- Bersihkan Isi Cell ---
+    for col in df.columns:
+        df[col] = df[col].apply(clean_value)
+
     return df

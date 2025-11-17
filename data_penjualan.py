@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import database
+import prediction
 
 st.set_page_config(page_title="Input Sales", page_icon="📊", layout="wide")
 
@@ -24,11 +25,16 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file)
+
+        df = database.clean_excel_apostrophe(df)
+        st.success("✅ Data berhasil dibersihkan!")
                 
         st.subheader("Preview Data")
         st.dataframe(df.head(10))
         st.info(f"Total baris: {len(df)}")
-                
+
+        print(df.applymap(type).head())
+
         # Tombol untuk upload
         if st.button("📤 Upload", type="primary", use_container_width=True):
             with st.spinner("Mengupload data ke database..."):
@@ -109,10 +115,8 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("📊 Status Data")
-    latest_penjualan = database.get_connection().cursor().execute(
-        "SELECT MAX(tgl_faktur) FROM penjualan"
-    ).fetchone()
-    st.info(f"Data penjualan terakhir: {latest_penjualan[0] if latest_penjualan else '-'}")
+    latest_penjualan = database.get_latest_penjualan_date()
+    st.info(f"Data penjualan terakhir: {latest_penjualan if latest_penjualan else '-'}")
 
 with col2:
     st.subheader("🔮 Prediksi Bulan Depan")
@@ -132,7 +136,7 @@ if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_w
         status_text.text("1/2: Generate prediksi untuk semua barang...")
         progress_bar.progress(30)
         
-        results = database.process_end_of_month()
+        results = prediction.process_end_of_month()
         
         progress_bar.progress(100)
         status_text.text("Selesai!")

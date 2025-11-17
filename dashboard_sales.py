@@ -79,7 +79,7 @@ st.markdown("---")
 # ================================================
 
 # Data historis penjualan (actual)
-penjualan_df = database.get_data_penjualan(info_barang[0])
+penjualan_df = database.get_all_data_penjualan(info_barang[0])
 
 # Data prediksi yang tersedia (semua)
 prediksi_df = database.get_data_prediksi(info_barang[0])
@@ -212,11 +212,16 @@ fig.add_vline(
 
 # Gabungkan semua tanggal
 all_dates = penjualan_df.index
+
 if len(prediksi_df) > 0:
     all_dates = all_dates.union(prediksi_df.index)
+
 if st.session_state.temp_prediction is not None:
     temp_dates = pd.DatetimeIndex(st.session_state.temp_prediction['tanggal'])
     all_dates = all_dates.union(temp_dates)
+
+# 🔥 FIX: Samakan semua tipe datetime
+all_dates = pd.to_datetime(all_dates)
 
 # Layout
 fig.update_xaxes(
