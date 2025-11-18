@@ -154,6 +154,37 @@ def get_all_data_penjualan(id_barang):
         
     return df
 
+def get_data_penjualan_with_date_range(id_barang, start_date, end_date):
+    conn = get_connection()
+
+    query = """
+    SELECT 
+        DATE_FORMAT(tgl_faktur, '%Y-%m-01') AS tanggal,
+        SUM(kuantitas) AS kuantitas
+    FROM penjualan
+    WHERE id_barang = %s
+        AND tgl_faktur BETWEEN %s AND %s
+    GROUP BY DATE_FORMAT(tgl_faktur, '%Y-%m-01')
+    ORDER BY tanggal;
+    """
+
+    df = pd.read_sql(query, conn, params=(id_barang, start_date, end_date))
+    conn.close()
+
+    if len(df) > 0:
+        df['tanggal'] = pd.to_datetime(df['tanggal'], errors='coerce')
+        df['tanggal'] = df['tanggal'].dt.date
+        df = df.set_index('tanggal')
+
+    return df
+
+def get_first_sales_date(id_barang):
+    conn = get_connection()
+    query = "SELECT MIN(tgl_faktur) AS first_date FROM penjualan WHERE id_barang = %s"
+    df = pd.read_sql(query, conn, params=(id_barang,))
+    conn.close()
+    return df['first_date'].iloc[0]
+
 def get_data_penjualan(id_barang, start_date=None):
     conn = get_connection()
 
@@ -202,7 +233,8 @@ def get_data_prediksi(id_barang, start_date=None, end_date=None):
         
     if len(df) > 0:
         df['tanggal'] = pd.to_datetime(df['tanggal'], errors='coerce')
-        df['tanggal'] = df['tanggal'].dt.date
+        # df['tanggal'] = df['tanggal'].dt.date
+        df['tanggal'] = pd.to_datetime(df['tanggal']).dt.to_period('M').dt.to_timestamp()
         df = df.set_index('tanggal')
         
     return df

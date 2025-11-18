@@ -29,22 +29,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import database
 import backfill_prediction
 
-# ================================================
-# KONFIGURASI - EDIT INI!
-# ================================================
+# Misal 1 Agustus 2025 -> prediksi Sep, Okt, Nov
+SIMULATED_DATE = datetime(2025, 5, 1)  
 
-# Tanggal yang disimulasikan (seolah-olah sekarang adalah tanggal ini)
-SIMULATED_DATE = datetime(2025, 8, 1)  # 1 Agustus 2025 (untuk prediksi Sep, Okt, Nov)
-
-# Jumlah bulan yang akan diprediksi (setelah SIMULATED_DATE)
+# Prediksi 3 bulan ke depan
 MONTHS_AHEAD = 3
 
-# Auto fallback ke Mean jika ARIMA gagal karena data kurang
-FALLBACK_TO_MEAN = True  # Set False jika tidak mau auto fallback
-
-# ================================================
-# MAIN SCRIPT
-# ================================================
+FALLBACK_TO_MEAN = True
 
 def main():
     print("="*70)
@@ -100,10 +91,9 @@ def main():
             try:
                 print(f"[{idx+1}/{len(barang_list)}] {nama}...", end=" ")
                 
-                # Generate prediksi dengan BASE_DATE parameter
                 result = backfill_prediction.generate_prediksi(
                     info_barang=info_barang,
-                    base_date=SIMULATED_DATE  # ← Pass simulated date
+                    base_date=SIMULATED_DATE
                 )
                 
                 if result['status'] == 'generated':
@@ -128,7 +118,6 @@ def main():
             
             print()
         
-        # Final Summary
         print("="*70)
         print("📊 SUMMARY HASIL BACKFILL")
         print("="*70)
@@ -136,7 +125,6 @@ def main():
         print(f"❌ Error: {error_count}/{len(barang_list)} barang")
         print("="*70)
         
-        # Detail error jika ada
         if error_details:
             print("\n⚠️ DETAIL ERROR:")
             print("-"*70)

@@ -9,16 +9,9 @@ warnings.filterwarnings('ignore')
 import database
 
 def get_next_3_months(base_date=None):
-    """
-    Dapatkan 3 bulan ke depan dari base_date
-    
-    Args:
-        base_date: Tanggal referensi (default: datetime.now())
-    """
     if base_date is None:
         base_date = datetime.now()
     
-    # FIX: Pastikan base_date adalah datetime, bukan date
     if not isinstance(base_date, datetime):
         base_date = datetime.combine(base_date, datetime.min.time())
     
@@ -26,7 +19,8 @@ def get_next_3_months(base_date=None):
 
     dates = []
     for i in range(3):
-        dates.append((next_month + relativedelta(months=i)).date())
+        next_month = next_month + relativedelta(months=i)
+        dates.append(pd.Timestamp(next_month.strftime("%Y-%m-01")))
 
     print("GET NEXT 3 MONTHS")
     print(f"Base date: {base_date.strftime('%Y-%m-%d')}")
@@ -36,13 +30,6 @@ def get_next_3_months(base_date=None):
     return dates
 
 def check_prediksi(id_barang, base_date=None):
-    """
-    Cek apakah prediksi 3 bulan ke depan sudah ada
-    
-    Args:
-        id_barang: ID barang
-        base_date: Tanggal referensi (default: datetime.now())
-    """
     required_dates = get_next_3_months(base_date)
     start_date = required_dates[0].strftime('%Y-%m-%d')
     end_date = required_dates[2].strftime('%Y-%m-%d')
@@ -72,78 +59,96 @@ def check_prediksi(id_barang, base_date=None):
         'existing_count': len(df_prediksi)
     }
 
-def prediksi_arima(id_barang, p, d, q, base_date=None, min_data_months=12):
-    """
-    Prediksi menggunakan ARIMA dengan auto-lengkapi data jika kurang
-    
-    Args:
-        id_barang: ID barang
-        p, d, q: Order ARIMA
-        base_date: Tanggal referensi (default: datetime.now())
-        min_data_months: Minimum data yang dibutuhkan (default: 12)
-    """
-    sales = database.get_all_data_penjualan(id_barang)
+def prediksi_arima(id_barang, p, d, q, base_date=None):
+    first_sales_date = database.get_first_sales_date(id_barang)
+    end_date = base_date.replace(day=1) + relativedelta(months=1) - relativedelta(days=1)
+
+    sales = database.get_data_penjualan_with_date_range(
+        id_barang=id_barang,
+        start_date=first_sales_date.strftime('%Y-%m-%d'),
+        end_date=end_date.strftime('%Y-%m-%d')
+    )
+
+    # sales = database.get_all_data_penjualan(id_barang)
     sales.index.name = None
     
     # FIX: Pastikan tidak ada NaN di sales
     sales['kuantitas'] = sales['kuantitas'].fillna(0)
+
+    all_months = pd.date_range(
+        start=sales.index.min(),
+        end=end_date,
+        freq='MS'
+    )
+    sales = sales.reindex(all_months, fill_value=0)
+    sales.index.name = None
     
     # Periksa apakah data cukup
-    available_months = len(sales)
+    # available_months = len(sales)
     
-    if available_months < min_data_months:
-        # Coba lengkapi dengan data prediksi yang sudah ada
-        print(f"   ⚠ Data penjualan hanya {available_months} bulan, mencoba melengkapi dengan data prediksi...")
+    # if available_months < min_data_months:
+    #     # Coba lengkapi dengan data prediksi yang sudah ada
+    #     print(f"   ⚠ Data penjualan hanya {available_months} bulan, mencoba melengkapi dengan data prediksi...")
         
-        # Cari data prediksi sebelum base_date
-        if base_date is None:
-            base_date = datetime.now()
+    #     # Cari data prediksi sebelum base_date
+    #     if base_date is None:
+    #         base_date = datetime.now()
         
-        # FIX: Pastikan base_date adalah datetime
-        if not isinstance(base_date, datetime):
-            base_date = datetime.combine(base_date, datetime.min.time())
+    #     # FIX: Pastikan base_date adalah datetime
+    #     if not isinstance(base_date, datetime):
+    #         base_date = datetime.combine(base_date, datetime.min.time())
         
-        # Ambil prediksi hingga bulan base_date
-        last_sales_date = sales.index[-1] if len(sales) > 0 else base_date - relativedelta(months=12)
+    #     # Ambil prediksi hingga bulan base_date
+    #     last_sales_date = sales.index[-1] if len(sales) > 0 else base_date - relativedelta(months=12)
         
-        # FIX: Pastikan last_sales_date adalah datetime untuk operasi
-        if isinstance(last_sales_date, (pd.Timestamp, np.datetime64)):
-            last_sales_date = pd.Timestamp(last_sales_date).to_pydatetime()
-        elif not isinstance(last_sales_date, datetime):
-            last_sales_date = datetime.combine(last_sales_date, datetime.min.time())
+    #     # FIX: Pastikan last_sales_date adalah datetime untuk operasi
+    #     if isinstance(last_sales_date, (pd.Timestamp, np.datetime64)):
+    #         last_sales_date = pd.Timestamp(last_sales_date).to_pydatetime()
+    #     elif not isinstance(last_sales_date, datetime):
+    #         last_sales_date = datetime.combine(last_sales_date, datetime.min.time())
         
-        # Cari prediksi antara last_sales_date dan base_date
-        prediksi_existing = database.get_data_prediksi(
-            id_barang,
-            (last_sales_date + relativedelta(months=1)).strftime('%Y-%m-%d'),
-            base_date.strftime('%Y-%m-%d')
-        )
+    #     # Cari prediksi antara last_sales_date dan base_date
+    #     prediksi_existing = database.get_data_prediksi(
+    #         id_barang,
+    #         (last_sales_date + relativedelta(months=1)).strftime('%Y-%m-%d'),
+    #         base_date.strftime('%Y-%m-%d')
+    #     )
         
-        if len(prediksi_existing) > 0:
-            # Gabungkan sales dengan prediksi
-            combined = pd.concat([sales, prediksi_existing])
-            combined = combined[~combined.index.duplicated(keep='first')]
-            combined = combined.sort_index()
-            # FIX: Isi NaN dengan 0 setelah concat
-            combined['kuantitas'] = combined['kuantitas'].fillna(0)
-            sales = combined
-            print(f"   ✓ Data dilengkapi dengan {len(prediksi_existing)} bulan prediksi")
-            print(f"   ✓ Total data: {len(sales)} bulan")
+    #     if len(prediksi_existing) > 0:
+    #         # Gabungkan sales dengan prediksi
+    #         combined = pd.concat([sales, prediksi_existing])
+    #         combined = combined[~combined.index.duplicated(keep='first')]
+    #         combined = combined.sort_index()
+    #         # FIX: Isi NaN dengan 0 setelah concat
+    #         combined['kuantitas'] = combined['kuantitas'].fillna(0)
+    #         sales = combined
+    #         print(f"   ✓ Data dilengkapi dengan {len(prediksi_existing)} bulan prediksi")
+    #         print(f"   ✓ Total data: {len(sales)} bulan")
         
-        # Cek lagi setelah dilengkapi
-        if len(sales) < min_data_months:
-            raise ValueError(
-                f"Data tidak cukup untuk prediksi ARIMA. "
-                f"Minimal {min_data_months} bulan, tersedia {len(sales)} bulan "
-                f"(penjualan: {available_months}, prediksi: {len(prediksi_existing) if len(prediksi_existing) > 0 else 0}). "
-            )
+    #     # Cek lagi setelah dilengkapi
+    #     if len(sales) < min_data_months:
+    #         raise ValueError(
+    #             f"Data tidak cukup untuk prediksi ARIMA. "
+    #             f"Minimal {min_data_months} bulan, tersedia {len(sales)} bulan "
+    #             f"(penjualan: {available_months}, prediksi: {len(prediksi_existing) if len(prediksi_existing) > 0 else 0}). "
+    #         )
     
     ori_sales = sales.copy()
+
+    print("ORI SALES")
+    print(ori_sales)
+    print("=" * 60)
     
     # Smoothing dengan Savitzky-Golay filter
-    if len(sales) >= 5:
-        window_size = min(5, len(sales) if len(sales) % 2 == 1 else len(sales)-1)
-        sales['kuantitas'] = savgol_filter(sales['kuantitas'], window_size, 2)
+    # if len(sales) >= 5:
+    #     window_size = min(5, len(sales) if len(sales) % 2 == 1 else len(sales)-1)
+    #     sales['kuantitas'] = savgol_filter(sales['kuantitas'], window_size, 2)
+
+    sales['kuantitas'] = savgol_filter(sales['kuantitas'], 5, 2)
+
+    print("ORI SALES")
+    print(ori_sales)
+    print("=" * 60)
     
     future_dates = get_next_3_months(base_date)
 
@@ -169,16 +174,7 @@ def prediksi_arima(id_barang, p, d, q, base_date=None, min_data_months=12):
     return result
 
 def prediksi_mean(id_barang, base_date=None):
-    """
-    Prediksi menggunakan Mean dengan rolling window
-    
-    Args:
-        id_barang: ID barang
-        base_date: Tanggal referensi (default: datetime.now())
-    """
     combined_data = database.get_last_12_data_penjualan(id_barang)
-    
-    # FIX: Pastikan semua NaN jadi 0
     combined_data['kuantitas'] = combined_data['kuantitas'].fillna(0)
     
     future_dates = get_next_3_months(base_date)
@@ -190,7 +186,6 @@ def prediksi_mean(id_barang, base_date=None):
         mean_value = window_data.mean()
             
         if pd.isna(mean_value):
-            # Jika masih NaN, gunakan prediksi sebelumnya atau 0
             mean_value = predictions[-1] if predictions else 0
             
         predictions.append(mean_value)
@@ -213,13 +208,6 @@ def prediksi_mean(id_barang, base_date=None):
     return result
 
 def generate_prediksi(info_barang, base_date=None):
-    """
-    Generate prediksi tanpa fallback (hanya model yang dipilih saja)
-    
-    Args:
-        info_barang: Tuple dari database.get_data_barang()
-        base_date: Tanggal referensi (default: datetime.now())
-    """
     id_barang = info_barang[0]
     nama_barang = info_barang[1]
     model_prediksi = info_barang[2]
@@ -228,29 +216,24 @@ def generate_prediksi(info_barang, base_date=None):
     q = int(info_barang[5]) if pd.notna(info_barang[5]) else None
 
     try:
-        # ==== MODEL ARIMA ====
         if model_prediksi == 'ARIMA':
             if p is None or d is None or q is None:
                 raise ValueError("Order ARIMA (p, d, q) harus disediakan")
-
-            # Langsung jalankan ARIMA tanpa fallback
+            
             result = prediksi_arima(id_barang, p, d, q, base_date)
             used_model = 'ARIMA'
 
-        # ==== MODEL MEAN ====
         elif model_prediksi == 'Mean':
             result = prediksi_mean(id_barang, base_date)
             used_model = 'MEAN'
 
-        # ==== MODEL TIDAK DITEMUKAN ====
         else:
             raise ValueError("Model prediksi tidak dikenali (harus 'ARIMA' atau 'Mean')")
 
-        # ==== SIMPAN HASIL KE DATABASE ====
         for idx, row in result.iterrows():
             database.insert_hasil_prediksi(
                 id_barang=id_barang,
-                tanggal=row['tanggal'],
+                tanggal=row['tanggal'].strftime("%Y-%m-%d"),
                 kuantitas=round(row['kuantitas'], 2)
             )
 
@@ -262,7 +245,6 @@ def generate_prediksi(info_barang, base_date=None):
         }
 
     except Exception as e:
-        # Tangani semua error tanpa fallback
         return {
             'status': 'error',
             'message': f"✗ Error: {str(e)}",
