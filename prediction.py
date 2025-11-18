@@ -60,14 +60,6 @@ def check_prediksi_range(id_barang, start_date, end_date):
     }
 
 def prediksi_arima(id_barang, p, d, q, target_dates):
-    """
-    Prediksi menggunakan ARIMA untuk range tanggal tertentu
-    
-    Args:
-        id_barang: ID barang
-        p, d, q: Order ARIMA
-        target_dates: List of date objects untuk prediksi
-    """
     sales = database.get_all_data_penjualan(id_barang)
     sales.index.name = None
     sales['kuantitas'] = sales['kuantitas'].fillna(0)
@@ -80,11 +72,8 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     print("\nPREDIKSI ARIMA - DATA SALES")
     print(f"Total data: {len(sales)} bulan")
     print("=" * 60)
-    
-    # Smoothing dengan Savitzky-Golay filter
-    if len(sales) >= 5:
-        window_size = min(5, len(sales) if len(sales) % 2 == 1 else len(sales)-1)
-        sales['kuantitas'] = savgol_filter(sales['kuantitas'], window_size, 2)
+
+    sales['kuantitas'] = savgol_filter(sales['kuantitas'], 5, 2)
 
     model = ARIMA(sales['kuantitas'], order=(p,d,q))
     result = model.fit()
@@ -123,19 +112,11 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     return result_df
 
 def prediksi_mean(id_barang, target_dates):
-    """
-    Prediksi menggunakan Mean untuk range tanggal tertentu
-    
-    Args:
-        id_barang: ID barang
-        target_dates: List of date objects untuk prediksi
-    """
     combined_data = database.get_last_12_data_penjualan(id_barang)
     combined_data['kuantitas'] = combined_data['kuantitas'].fillna(0)
     
     predictions = []
     for i, target_date in enumerate(target_dates):
-        # Hitung rata-rata dari 12 data terakhir
         window_data = combined_data['kuantitas'].tail(12).fillna(0)
         mean_value = window_data.mean()
         
@@ -144,7 +125,6 @@ def prediksi_mean(id_barang, target_dates):
         
         predictions.append(mean_value)
         
-        # Tambahkan prediksi ini ke combined_data untuk iterasi berikutnya
         new_row = pd.DataFrame({
             'kuantitas': [mean_value]
         }, index=[target_date])
@@ -169,11 +149,9 @@ def generate_prediksi_range(info_barang, start_month, end_month):
     d = int(info_barang[4]) if pd.notna(info_barang[4]) else None
     q = int(info_barang[5]) if pd.notna(info_barang[5]) else None
 
-    # Dapatkan list bulan yang akan diprediksi
     target_dates = get_months_in_range(start_month, end_month)
     
     try:
-        # ==== MODEL ARIMA ====
         if model_prediksi == 'ARIMA':
             if p is None or d is None or q is None:
                 raise ValueError("Order ARIMA (p, d, q) harus disediakan")
@@ -181,18 +159,16 @@ def generate_prediksi_range(info_barang, start_month, end_month):
             result = prediksi_arima(id_barang, p, d, q, target_dates)
             used_model = 'ARIMA'
 
-        # ==== MODEL MEAN ====
         elif model_prediksi == 'Mean':
             result = prediksi_mean(id_barang, target_dates)
             used_model = 'MEAN'
 
-        # ==== MODEL TIDAK DITEMUKAN ====
         else:
-            raise ValueError("Model prediksi tidak dikenali (harus 'ARIMA' atau 'Mean')")
+            raise ValueError("Model prediksi tidak dikenali")
 
         return {
             'status': 'generated',
-            'message': f"Prediksi berhasil di-generate untuk {len(result)} bulan (Model: {used_model})",
+            'message': f"Prediksi berhasil di-generate untuk {len(result)} bulan",
             'data': result,
             'info': f"{len(result)} bulan prediksi berhasil disimpan"
         }
@@ -210,11 +186,9 @@ def generate_all_prediksi():
 
     all_barang = database.get_all_data_barang()
     
-    # Tentukan target bulan prediksi (bulan depan)
     next_month = (base_date.replace(day=1) + pd.DateOffset(months=1)).date()
     target_dates = [next_month]
 
-    # Loop semua barang
     for _, row in all_barang.iterrows():
         id_barang = row['id']
         nama_barang = row['nama']
@@ -223,23 +197,19 @@ def generate_all_prediksi():
 
         print(f"🔹 Barang: {nama_barang} (Model: {model})")
 
-        # Ambil data penjualan lengkap
         df_penjualan = database.get_all_data_penjualan(id_barang)
 
-        # Cek kelengkapan data sebelum prediksi
         try:
             database.cek_data_penjualan_lengkap(df_penjualan, base_date)
         except ValueError as e:
             print(f"❌ ERROR: {nama_barang} -> {str(e)}")
-            return None  # Stop prediksi untuk barang ini
+            return None 
 
-        # --- GENERATE PREDIKSI ---
         if model == 'ARIMA' and pd.notna(p) and pd.notna(d) and pd.notna(q):
             result = prediksi_arima(id_barang, int(p), int(d), int(q), target_dates)
         elif model == 'Mean':
             result = prediksi_mean(id_barang, target_dates)
 
-        # --- SIMPAN HASIL ---
         for _, row_pred in result.iterrows():
             tanggal = row_pred['tanggal']
             qty = row_pred['kuantitas']
@@ -363,27 +333,8 @@ def generate_all_prediksi():
 #         }
 
 
-# ================================================
-# TAMBAHAN FUNGSI UNTUK PREDICTION.PY
-# Tambahkan fungsi ini ke file prediction.py yang sudah ada
-# ================================================
-
 def generate_prediksi_temp(info_barang, start_month, end_month):
-    """
-    Generate prediksi SEMENTARA untuk visualisasi (TIDAK DISIMPAN ke database)
-    
-    Args:
-        info_barang: Tuple dari database.get_data_barang()
-        start_month: datetime object bulan awal
-        end_month: datetime object bulan akhir
-    
-    Returns:
-        dict: {
-            'status': 'success' atau 'error',
-            'message': str,
-            'data': DataFrame dengan kolom [tanggal, kuantitas] atau None
-        }
-    """
+
     id_barang = info_barang[0]
     nama_barang = info_barang[1]
     model_prediksi = info_barang[2]
@@ -438,22 +389,6 @@ def generate_prediksi_temp(info_barang, start_month, end_month):
 
 
 def generate_prediksi_official(info_barang, base_date=None):
-    """
-    Generate prediksi OFFICIAL untuk 1 bulan ke depan (DISIMPAN ke DB)
-    Digunakan untuk proses akhir bulan
-    
-    Args:
-        info_barang: Tuple dari database.get_data_barang()
-        base_date: Tanggal referensi (default: datetime.now())
-    
-    Returns:
-        dict: {
-            'status': 'success' atau 'error',
-            'message': str,
-            'data': DataFrame dengan kolom [tanggal, kuantitas],
-            'model': str (nama model yang digunakan)
-        }
-    """
     id_barang = info_barang[0]
     nama_barang = info_barang[1]
     model_prediksi = info_barang[2]
@@ -465,11 +400,9 @@ def generate_prediksi_official(info_barang, base_date=None):
         base_date = datetime.now()
 
     try:
-        # Generate untuk 1 BULAN ke depan saja
         next_month = base_date.replace(day=1) + relativedelta(months=1)
         target_dates = [next_month.date()]
         
-        # ==== MODEL ARIMA ====
         if model_prediksi == 'ARIMA':
             if p is None or d is None or q is None:
                 raise ValueError("Order ARIMA (p, d, q) harus disediakan")
@@ -480,13 +413,11 @@ def generate_prediksi_official(info_barang, base_date=None):
                 
             except ValueError as e:
                 if "Data tidak cukup" in str(e):
-                    # Fallback ke model Mean
                     result = prediksi_mean(id_barang, target_dates)
                     used_model = 'MEAN (Fallback)'
                 else:
                     raise
                     
-        # ==== MODEL MEAN ====
         elif model_prediksi == 'Mean':
             result = prediksi_mean(id_barang, target_dates)
             used_model = 'MEAN'
@@ -494,7 +425,6 @@ def generate_prediksi_official(info_barang, base_date=None):
         else:
             raise ValueError(f"Model prediksi tidak ditemukan: {model_prediksi}")
         
-        # SIMPAN ke database (OVERRIDE jika sudah ada)
         for idx, row in result.iterrows():
             database.insert_hasil_prediksi(
                 id_barang=id_barang,
@@ -516,19 +446,7 @@ def generate_prediksi_official(info_barang, base_date=None):
             'data': None
         }
 
-
-
-def process_end_of_month():
-    """
-    Proses akhir bulan:
-    1. Generate prediksi 1 bulan ke depan untuk semua barang
-    2. Hitung safety stock & reorder point
-    3. Simpan rekomendasi stok
-    
-    Returns:
-        dict dengan summary hasil proses
-    """
-    
+def process_end_of_month():    
     results = {
         'prediksi_success': [],
         'prediksi_failed': [],
@@ -536,7 +454,6 @@ def process_end_of_month():
         'rekomendasi_failed': []
     }
     
-    # Ambil semua barang
     barang_list = database.get_all_nama_barang()
     
     for idx, row in barang_list.iterrows():
@@ -573,7 +490,6 @@ def process_end_of_month():
                 max_lead_time = lead_time_row['max_lead_time'].values[0]
                 avg_lead_time = lead_time_row['avg_lead_time'].values[0]
             
-            # Ambil data penjualan historis
             penjualan = database.get_all_data_penjualan(id_barang)
             
             if len(penjualan) == 0:
@@ -581,22 +497,18 @@ def process_end_of_month():
                 continue
             
             # Hitung average & max daily usage
-            # PENJELASAN: Karena prediksi bulanan, kita bagi 30 untuk dapat daily usage
             avg_monthly_sales = penjualan['kuantitas'].mean()
-            avg_daily_usage = avg_monthly_sales / 30  # Konversi bulanan ke harian
+            avg_daily_usage = avg_monthly_sales / 30
             
             max_monthly_sales = penjualan['kuantitas'].max()
-            max_daily_usage = max_monthly_sales / 30  # Konversi bulanan ke harian
+            max_daily_usage = max_monthly_sales / 30
             
-            # Safety Stock = (Max daily usage × Max lead time) - (Avg daily usage × Avg lead time)
             safety_stock = (max_daily_usage * max_lead_time) - (avg_daily_usage * avg_lead_time)
             safety_stock = max(0, round(safety_stock, 2))
             
-            # Reorder Point = (Avg daily usage × Avg lead time) + Safety stock
             reorder_point = (avg_daily_usage * avg_lead_time) + safety_stock
             reorder_point = round(reorder_point, 2)
-            
-            # Ambil stok aktual terbaru
+
             latest_stok_date = database.get_latest_stok_date()
             if latest_stok_date:
                 stok_data = database.get_stok_by_date(latest_stok_date)
@@ -605,8 +517,6 @@ def process_end_of_month():
             else:
                 stok_aktual = 0
             
-            # Hitung saran stok
-            # CATATAN: Ini untuk mempersiapkan stok menghadapi demand bulan depan
             saran_stok = reorder_point + hasil_prediksi - stok_aktual
             saran_stok = max(0, round(saran_stok, 2))
 
