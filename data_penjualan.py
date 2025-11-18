@@ -7,9 +7,8 @@ import prediction
 st.set_page_config(page_title="Input Sales", page_icon="📊", layout="wide")
 
 st.title("📊 Upload Data Penjualan")
-st.write("Upload file CSV data penjualan untuk dimasukkan ke database")
-    
-# Informasi format CSV
+st.write("Upload file Excel data penjualan untuk dimasukkan ke database")
+
 with st.expander("ℹ️ Format File Excel"):
     st.write("""
     - Kolom: `No Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
@@ -24,9 +23,24 @@ uploaded_file = st.file_uploader(
         
 if uploaded_file is not None:
     try:
-        df = pd.read_excel(uploaded_file)
+        df_raw = pd.read_excel(uploaded_file, header=None)
 
+        EXPECTED_COLS = ["Tgl Faktur", "No. Faktur", "Nama Pelanggan", "Keterangan Barang", "Kuantitas", "Jumlah"]
+
+        header_row_index = None
+
+        for i, row in df_raw.iterrows():
+            row_str = row.astype(str).str.upper()
+            if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+                header_row_index = i
+                break
+
+        df = pd.read_excel(uploaded_file, header=header_row_index)
+
+        df = df.dropna(how="all")
+        df = df[EXPECTED_COLS]
         df = database.clean_excel_apostrophe(df)
+
         st.success("✅ Data berhasil dibersihkan!")
                 
         st.subheader("Preview Data")
@@ -35,12 +49,10 @@ if uploaded_file is not None:
 
         print(df.applymap(type).head())
 
-        # Tombol untuk upload
         if st.button("📤 Upload", type="primary", use_container_width=True):
             with st.spinner("Mengupload data ke database..."):
                 success_count, error_count, errors = database.insert_data_penjualan(df)
                         
-            # Tampilkan hasil
             if success_count > 0:
                 st.success(f"✅ Berhasil mengupload {success_count} baris data!")
                         
@@ -48,7 +60,7 @@ if uploaded_file is not None:
                 st.warning(f"⚠️ {error_count} baris gagal diupload")
                             
                 with st.expander("Lihat detail error"):
-                    for error in errors[:20]:  # Tampilkan maksimal 20 error pertama
+                    for error in errors[:20]:
                         st.error(error)
                                 
                     if len(errors) > 20:
@@ -63,10 +75,9 @@ if uploaded_file is not None:
 
 
 
-# Divider
+
 st.divider()
     
-# Section untuk melihat data barang yang tersedia
 st.subheader("🔍 Data Penjualan")
 st.write("ℹ️ Data pada tabel ditampilkan dari tanggal terbaru")
     
@@ -93,7 +104,7 @@ if st.button("Tampilkan Data Penjualan"):
 
 
 
-# Divider
+
 st.divider()
 
 st.subheader("📅 Proses Akhir Bulan")
@@ -110,7 +121,6 @@ Setelah input laporan penjualan bulanan, klik button di bawah untuk:
 
 st.markdown("---")
 
-# Info data terakhir
 col1, col2 = st.columns(2)
 
 with col1:
@@ -125,14 +135,12 @@ with col2:
 
 st.markdown("---")
 
-# BUTTON UTAMA
 if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
     
     with st.spinner("Memproses..."):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # 1. Generate Prediksi
         status_text.text("1/2: Generate prediksi untuk semua barang...")
         progress_bar.progress(30)
         
@@ -141,7 +149,6 @@ if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_w
         progress_bar.progress(100)
         status_text.text("Selesai!")
         
-        # Summary
         st.success("✅ Proses akhir bulan selesai!")
         
         col1, col2 = st.columns(2)
@@ -154,8 +161,12 @@ if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_w
             st.metric("❌ Prediksi Gagal", len(results['prediksi_failed']))
             st.metric("❌ Rekomendasi Gagal", len(results['rekomendasi_failed']))
         
-        # Detail jika ada error
         if results['prediksi_failed']:
             with st.expander("❌ Detail Error Prediksi"):
                 for nama, error in results['prediksi_failed']:
+                    st.error(f"**{nama}**: {error}")
+
+        if results['rekomendasi_failed']:
+            with st.expander("❌ Detail Error Rekomendasi"):
+                for nama, error in results['rekomendasi_failed']:
                     st.error(f"**{nama}**: {error}")

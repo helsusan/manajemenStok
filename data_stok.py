@@ -30,19 +30,6 @@ with col2:
         help="Pilih tanggal untuk data stok ini"
     )
 
-# tanggal_stok = st.date_input(
-#         "Tanggal Stok",
-#         value=datetime.now(),
-#         help="Pilih tanggal untuk data stok ini"
-# )
-
-# # Informasi format CSV
-# with st.expander("ℹ️ Format File Excel"):
-#     st.write("""
-#     - Kolom: `Nama Barang`, `Gudang BJM`, `Gudang SBY`
-#     - Nama Barang harus sudah ada di database
-#     """)
-
 uploaded_file = st.file_uploader(
     "Upload File Excel (.xlsx, .xls)",
     type=['xlsx', 'xls'],
@@ -76,7 +63,6 @@ if uploaded_file is not None:
                         
                         if success > 0:
                             st.success(f"✅ Berhasil menyimpan {success} data stok!")
-                            st.balloons()
                             
                             # Trigger auto-update rekomendasi stok
                             st.info("💡 Jangan lupa update analisis stok di Dashboard Stok!")
@@ -153,20 +139,13 @@ st.markdown("---")
 st.header("⏱️ Kelola Lead Time")
 
 st.markdown("""
-**Lead Time** adalah jeda waktu dari pemesanan produk ke supplier sampai barang sampai di Gudang.
-
-- **Average Lead Time**: Waktu rata-rata pengiriman (dalam kondisi normal)
-- **Maximum Lead Time**: Waktu pengiriman terburuk (untuk perhitungan safety stock)
-
-Nilai ini mempengaruhi perhitungan Reorder Point dan Safety Stock.
+**Lead Time** adalah jeda waktu dari pemesanan produk ke supplier sampai barang tiba di Gudang Banjarmasin.
 """)
 
 # Ambil data barang dengan lead time
 barang_lead_time = database.get_barang_with_lead_time()
 
-if len(barang_lead_time) > 0:
-    st.subheader("📝 Edit Lead Time per Barang")
-    
+if len(barang_lead_time) > 0:   
     # Info default
     st.info("💡 Default: Avg Lead Time = 7 hari, Max Lead Time = 10 hari (jika belum diisi)")
     
@@ -196,10 +175,7 @@ if len(barang_lead_time) > 0:
         num_rows="fixed"
     )
     
-    # Validasi: Max harus >= Avg
-    st.markdown("---")
-    st.markdown("### ⚠️ Validasi Data")
-    
+    # Validasi: Max harus >= Avg    
     validation_errors = []
     for idx, row in edited_df.iterrows():
         if row['max_lead_time'] < row['avg_lead_time']:
@@ -227,8 +203,8 @@ if len(barang_lead_time) > 0:
                     for idx, row in edited_df.iterrows():
                         database.update_lead_time(
                             row['id'], 
-                            row['avg_lead_time'],
-                            row['max_lead_time']
+                            row['max_lead_time'],
+                            row['avg_lead_time']
                         )
                     
                     st.success("✅ Lead time berhasil diupdate!")

@@ -78,6 +78,40 @@ def get_all_data_barang():
 # DATA PENJUALAN
 # ================================================
 
+def parse_tanggal(value):
+    # Jika NaN
+    if pd.isna(value):
+        return None
+
+    # Jika numeric dari Excel serial
+    if isinstance(value, (int, float)):
+        try:
+            return pd.to_datetime(value, unit='D', origin='1899-12-30').strftime('%Y-%m-%d')
+        except:
+            pass
+
+    BULAN_ID = {
+        "Jan": "Jan", "Feb": "Feb", "Mar": "Mar", "Apr": "Apr", "Mei": "May",
+        "Jun": "Jun", "Jul": "Jul", "Agu": "Aug", "Sep": "Sep", "Okt": "Oct",
+        "Nov": "Nov", "Des": "Dec"
+    }
+
+    # Jika string
+    if isinstance(value, str):
+        value = value.strip()
+
+        # Ubah bulan Indonesian ke English
+        for indo, eng in BULAN_ID.items():
+            if indo in value:
+                value = value.replace(indo, eng)
+
+        try:
+            return pd.to_datetime(value).strftime('%Y-%m-%d')
+        except:
+            raise Exception(f"Format tanggal tidak valid: {value}")
+
+    raise Exception(f"Format tanggal tidak dikenali: {value}")
+
 def insert_data_penjualan(df):
     conn = get_connection()
     cursor = conn.cursor()
@@ -110,14 +144,9 @@ def insert_data_penjualan(df):
             # Validasi data wajib
             if pd.isna(no_faktur) or pd.isna(tgl_faktur) or pd.isna(kuantitas):
                 raise Exception(f"Baris {index + 2}: Data wajib (no_faktur, tgl_faktur, atau kuantitas) kosong")
-            
-            # Konversi tanggal jika perlu
-            if isinstance(tgl_faktur, str):
-                try:
-                    tgl_faktur = pd.to_datetime(tgl_faktur).strftime('%Y-%m-%d')
-                except:
-                    raise Exception(f"Baris {index + 2}: Format tanggal tidak valid")
-            
+
+            tgl_faktur = parse_tanggal(tgl_faktur)
+
             query = """
             INSERT INTO penjualan (no_faktur, tgl_faktur, nama_pelanggan, id_barang, kuantitas, jumlah)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -128,7 +157,7 @@ def insert_data_penjualan(df):
                 tgl_faktur,
                 str(nama_pelanggan) if not pd.isna(nama_pelanggan) else None,
                 id_barang,
-                int(kuantitas),
+                int(float(kuantitas)),
                 float(jumlah) if not pd.isna(jumlah) else 0
             )
             
@@ -609,8 +638,8 @@ def update_lead_time(id_barang, max_lead_time, avg_lead_time):
         cursor.execute(update_query, (max_lead_time, avg_lead_time, id_barang))
     else:
         insert_query = """
-        INSERT INTO rekomendasi_stok (id_barang, max_lead_time, avg_lead_time)
-        VALUES (%s, %s)
+        INSERT INTO rekomendasi_stok (id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point)
+        VALUES (%s, %s, %s, 0, 0)
         """
         cursor.execute(insert_query, (id_barang, max_lead_time, avg_lead_time))
     
@@ -715,7 +744,7 @@ def insert_rekomendasi_stok(id_barang, max_lead_time, avg_lead_time, safety_stoc
         INSERT INTO rekomendasi_stok 
         (id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point, tgl_update, 
          stok_aktual, hasil_prediksi, saran_stok)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         cursor.execute(insert_query, (id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point,
                                      tgl_update, stok_aktual, hasil_prediksi, saran_stok))
@@ -937,7 +966,7 @@ def get_rekomendasi_stok_with_gudang():
         if bjm <= reorder and sby > 0:
             return '⚠️ PERLU TRANSFER'
         elif bjm <= reorder:
-            return '🔴 KRITIS'
+            return '🔴 REORDER'
         elif sby > row['hasil_prediksi']:
             return '📦 SBY MENUMPUK'
         else:
