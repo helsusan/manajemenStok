@@ -1,7 +1,8 @@
 import streamlit as st
 import database
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
+import calendar
 
 st.set_page_config(page_title="Dashboard Stok", page_icon="📊", layout="wide")
 
@@ -70,18 +71,122 @@ btn_check_stock = st.button(
 if btn_check_stock:
     with st.spinner("🔄 Mengecek stok..."):
         check_stok = database.check_data_stok_hari_ini()
-        rekomendasi_full = database.get_rekomendasi_stok_with_gudang()
         
-        if len(rekomendasi_full) == 0:
-            st.error("❌ Data tidak lengkap untuk pengecekan")
+        # PERUBAHAN: Load data rekomendasi
+        rekomendasi = database.get_rekomendasi_stok()
+        
+        if len(rekomendasi) == 0:
+            st.error("❌ Belum ada data rekomendasi. Jalankan Proses Akhir Bulan terlebih dahulu.")
         else:
-            # Filter yang perlu reorder
-            need_reorder = rekomendasi_full[
-                rekomendasi_full['stok_aktual'] <= rekomendasi_full['reorder_point']
-            ].copy()
+            # PERUBAHAN 2: Cek apakah perlu update saran_stok
+            need_update = False
             
-            # Sort by urgency
-            need_reorder = need_reorder.sort_values('stok_aktual')
+            # Ambil tanggal stok terakhir & tanggal rekomendasi terakhir
+            latest_stok = database.get_latest_stok_date()
+            latest_rekomendasi = database.get_latest_rekomendasi_date()
+            
+            # Convert ke date untuk perbandingan
+            if latest_stok and hasattr(latest_stok, 'date'):
+                latest_stok_date = latest_stok.date()
+            elif latest_stok:
+                latest_stok_date = latest_stok
+            else:
+                latest_stok_date = None
+            
+            if latest_rekomendasi and hasattr(latest_rekomendasi, 'date'):
+                latest_rekomendasi_date = latest_rekomendasi.date()
+            elif latest_rekomendasi:
+                latest_rekomendasi_date = latest_rekomendasi
+            else:
+                latest_rekomendasi_date = None
+            
+            # PERUBAHAN 3: Cek apakah tanggal berbeda
+            if latest_stok_date and latest_rekomendasi_date:
+                if latest_stok_date != latest_rekomendasi_date:
+                    need_update = True
+                    st.info(f"🔄 Mendeteksi data stok baru ({latest_stok_date}), menghitung ulang saran stok...")
+            
+            # PERUBAHAN 4: Update saran_stok jika perlu
+            if need_update:
+                with st.spinner("📊 Menghitung ulang saran stok..."):
+                    # Ambil data stok terbaru (hanya BJM)
+                    stok_data = database.get_stok_by_date(latest_stok_date)
+                    
+                    # Loop untuk update setiap barang
+                    update_count = 0
+                    for idx, row in rekomendasi.iterrows():
+                        id_barang = row['id_barang']
+                        reorder_point = row['reorder_point']
+                        hasil_prediksi = row['hasil_prediksi']
+                        
+                        # Ambil stok BJM dari data stok terbaru
+                        stok_row = stok_data[stok_data['id'] == id_barang]
+                        if len(stok_row) > 0:
+                            stok_bjm = stok_row['gudang_bjm'].values[0]
+                            stok_bjm = stok_bjm if not pd.isna(stok_bjm) else 0
+                        else:
+                            stok_bjm = 0
+                        
+                        # PERUBAHAN 5: Hitung saran stok dalam bentuk HARIAN
+                        # Formula: (Reorder Point + Prediksi Bulanan/30) - Stok BJM
+                        next_month = datetime.now().replace(day=1) + timedelta(days=32)
+                        next_month = next_month.replace(day=1)
+                        days_in_next_month = calendar.monthrange(next_month.year, next_month.month)[1]
+
+                        avg_daily_usage = hasil_prediksi / days_in_next_month
+                        saran_stok_harian = reorder_point + avg_daily_usage - stok_bjm
+                        saran_stok_harian = max(0, round(saran_stok_harian, 2))
+                        
+                        # Update ke database
+                        database.update_saran_stok(
+                            id_barang=id_barang,
+                            stok_bjm=stok_bjm,
+                            saran_stok=saran_stok_harian,
+                            tgl_update=latest_stok_date
+                        )
+                        
+                        update_count += 1
+                    
+                    st.success(f"✅ Berhasil update saran stok untuk {update_count} barang!")
+                    
+                    # Reload data setelah update
+                    rekomendasi = database.get_rekomendasi_stok()
+            
+            # PERUBAHAN 6: Ambil data stok untuk display (BJM & SBY)
+            if latest_stok_date:
+                stok_display = database.get_stok_by_date(latest_stok_date)
+                
+                # Merge dengan rekomendasi
+                merged = pd.merge(
+                    rekomendasi,
+                    stok_display[['id', 'gudang_bjm', 'gudang_sby']],
+                    left_on='id_barang',
+                    right_on='id',
+                    how='left'
+                )
+            else:
+                # Kalau tidak ada data stok, tetap tampilkan tapi tanpa info gudang
+                merged = rekomendasi.copy()
+                merged['gudang_bjm'] = 0
+                merged['gudang_sby'] = 0
+            
+            # PERUBAHAN 7: Tambahkan status berdasarkan BJM vs Reorder Point
+            def get_status(row):
+                bjm = row['gudang_bjm'] if not pd.isna(row['gudang_bjm']) else 0
+                rop = row['reorder_point']
+                safety = row['safety_stock']
+                
+                if bjm <= safety:
+                    return '🔴 KRITIS'
+                elif bjm <= rop:
+                    return '⚠️ PERLU REORDER'
+                else:
+                    return '✅ AMAN'
+            
+            merged['status'] = merged.apply(get_status, axis=1)
+            
+            # Sort: yang kritis di atas
+            merged = merged.sort_values(['status', 'gudang_bjm'])
             
             st.success("✅ Pengecekan selesai!")
             
@@ -89,96 +194,108 @@ if btn_check_stock:
             st.markdown("---")
             st.subheader("📋 Hasil Pengecekan")
             
-            col1, col2, col3 = st.columns(3)
+            # Hitung summary
+            kritis = len(merged[merged['status'] == '🔴 KRITIS'])
+            perlu_reorder = len(merged[merged['status'] == '⚠️ PERLU REORDER'])
+            aman = len(merged[merged['status'] == '✅ AMAN'])
+            
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Total Barang Dicek", len(rekomendasi_full))
+                st.metric("Total Barang", len(merged))
             
             with col2:
-                st.metric("⚠️ Perlu Reorder", len(need_reorder))
+                st.metric("🔴 Kritis", kritis)
             
             with col3:
-                st.metric("✅ Stok Aman", len(rekomendasi_full) - len(need_reorder))
+                st.metric("⚠️ Perlu Reorder", perlu_reorder)
+            
+            with col4:
+                st.metric("✅ Aman", aman)
             
             st.markdown("---")
             
-            # Tabel dengan info gudang
-            if len(need_reorder) > 0:
-                st.subheader("🛒 Status Barang")
-                
-                # Hitung saran pembelian
-                need_reorder['saran_pembelian'] = (
-                    need_reorder['reorder_point'] + 
-                    need_reorder['hasil_prediksi'] - 
-                    need_reorder['stok_aktual']
-                ).clip(lower=0).round(2)
-                
-                display_cols = [
-                    'distribution_status', 'nama', 
-                    'gudang_bjm', 'gudang_sby', 'stok_aktual',
-                    'reorder_point', 'safety_stock', 'hasil_prediksi', 'saran_pembelian'
-                ]
-                
-                st.dataframe(
-                    need_reorder[display_cols],
-                    use_container_width=True,
-                    column_config={
-                        "distribution_status": st.column_config.TextColumn(
-                            "Status",
-                            help="Status distribusi gudang"
-                        ),
-                        "nama": "Nama Barang",
-                        "gudang_bjm": st.column_config.NumberColumn(
-                            "🏪 BJM",
-                            format="%d",
-                            help="Stok di gudang BJM"
-                        ),
-                        "gudang_sby": st.column_config.NumberColumn(
-                            "📦 SBY",
-                            format="%d",
-                            help="Stok di gudang SBY (perlu transfer)"
-                        ),
-                        "stok_aktual": st.column_config.NumberColumn("Total", format="%d"),
-                        "reorder_point": st.column_config.NumberColumn("Reorder Point", format="%.2f"),
-                        "safety_stock": st.column_config.NumberColumn("Safety Stock", format="%.2f"),
-                        "hasil_prediksi": st.column_config.NumberColumn("Hasil Prediksi", format="%.2f"),
-                        "saran_pembelian": st.column_config.NumberColumn(
-                            "🛒 Saran",
-                            format="%.2f",
-                            help="Action: transfer dari SBY atau order ke supplier"
-                        )
-                    },
-                    hide_index=True
-                )
-                
-                # # Interpretasi status
-                # st.markdown("---")
-                # st.markdown("### 📖 Interpretasi Status:")
-                
-                # col1, col2 = st.columns(2)
-                
-                # with col1:
-                #     st.markdown("""
-                #     **⚠️ PERLU TRANSFER**
-                #     - BJM kritis, tapi ada stok di SBY
-                #     - **Action**: Transfer dari SBY ke BJM
-                    
-                #     **🔴 KRITIS**
-                #     - BJM kritis, tidak ada stok di SBY
-                #     - **Action**: Order ke supplier URGENT
-                #     """)
-                
-                # with col2:
-                #     st.markdown("""
-                #     **📦 SBY MENUMPUK**
-                #     - Total cukup, tapi banyak di SBY
-                #     - **Action**: Transfer bertahap ke BJM
-                    
-                #     **✅ SEIMBANG**
-                #     - Distribusi sudah baik
-                #     - **Action**: Monitor saja
-                #     """)
+            # PERUBAHAN 8: Tabel menampilkan SEMUA barang
+            st.subheader("📊 Status Semua Barang")
             
+            # Kolom yang ditampilkan
+            display_cols = [
+                'status', 'nama', 
+                'gudang_bjm', 'gudang_sby',
+                'reorder_point', 'safety_stock', 
+                'hasil_prediksi', 'saran_stok'
+            ]
+            
+            st.dataframe(
+                merged[display_cols],
+                use_container_width=True,
+                column_config={
+                    "status": st.column_config.TextColumn(
+                        "Status",
+                        help="Status berdasarkan BJM vs Reorder Point"
+                    ),
+                    "nama": "Nama Barang",
+                    "gudang_bjm": st.column_config.NumberColumn(
+                        "🏪 Stok BJM",
+                        format="%d",
+                        help="Stok di gudang BJM (basis perhitungan)"
+                    ),
+                    "gudang_sby": st.column_config.NumberColumn(
+                        "📦 Stok SBY",
+                        format="%d",
+                        help="Stok di gudang SBY (informasi saja)"
+                    ),
+                    "reorder_point": st.column_config.NumberColumn(
+                        "Reorder Point", 
+                        format="%.2f",
+                        help="Batas untuk order (dalam unit harian)"
+                    ),
+                    "safety_stock": st.column_config.NumberColumn(
+                        "Safety Stock", 
+                        format="%.2f",
+                        help="Buffer stok (dalam unit harian)"
+                    ),
+                    "hasil_prediksi": st.column_config.NumberColumn(
+                        "Prediksi (Harian)", 
+                        format="%.2f",
+                        help="Prediksi penjualan bulan depan"
+                    ),
+                    "saran_stok": st.column_config.NumberColumn(
+                        "🛒 Saran Pembelian (Harian)",
+                        format="%.2f",
+                        help="Saran pembelian dalam unit harian (dari database)"
+                    )
+                },
+                hide_index=True
+            )
+            
+            # Info tambahan
+            st.markdown("---")
+            st.markdown("### 📖 Keterangan:")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **Status Barang:**
+                - 🔴 **KRITIS**: Stok BJM ≤ Safety Stock (sangat urgent!)
+                - ⚠️ **PERLU REORDER**: Stok BJM ≤ Reorder Point (segera order)
+                - ✅ **AMAN**: Stok BJM > Reorder Point (stok cukup)
+                """)
+            
+            with col2:
+                st.markdown("""
+                **Saran Pembelian (Harian):**
+                - Formula: `(Reorder Point + Prediksi Harian) - Stok BJM`
+                - Prediksi Harian: Prediksi Bulanan / 30 hari
+                - Basis perhitungan: **Hanya stok BJM**
+                - Stok SBY: Informasi tambahan saja
+                """)
+            
+            # Warning jika ada yang kritis
+            if kritis > 0:
+                st.error(f"⚠️ **PERHATIAN**: {kritis} barang dalam status KRITIS! Segera lakukan pemesanan.")
+            elif perlu_reorder > 0:
+                st.warning(f"⚠️ {perlu_reorder} barang perlu reorder. Pertimbangkan untuk melakukan pemesanan segera.")
             else:
-                st.success("🎉 Semua stok barang masih aman!")
-
+                st.success("✅ Semua barang dalam kondisi aman!")

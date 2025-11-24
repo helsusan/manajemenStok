@@ -533,11 +533,11 @@ def process_end_of_month():
             if latest_stok_date:
                 stok_data = database.get_stok_by_date(latest_stok_date)
                 stok_row = stok_data[stok_data['id'] == id_barang]
-                stok_aktual = stok_row['total_stok'].values[0] if len(stok_row) > 0 else 0
+                stok_aktual = stok_row['gudang_bjm'].values[0] if len(stok_row) > 0 else 0
             else:
                 stok_aktual = 0
             
-            saran_stok = reorder_point + hasil_prediksi - stok_aktual
+            saran_stok = reorder_point + avg_daily_usage - stok_aktual
             saran_stok = max(0, round(saran_stok, 2))
 
             # ===== SIMPAN REKOMENDASI STOK KE DATABASE =====
@@ -548,7 +548,7 @@ def process_end_of_month():
                 safety_stock=safety_stock,
                 reorder_point=reorder_point,
                 stok_aktual=stok_aktual,
-                hasil_prediksi=hasil_prediksi,
+                hasil_prediksi=avg_daily_usage,
                 saran_stok=saran_stok
             )
             

@@ -715,6 +715,48 @@ def check_data_stok_hari_ini():
 # DATA REKOMENDASI STOK
 # ================================================
 
+# ================================================
+# TAMBAHKAN FUNCTION INI KE database.py
+# ================================================
+
+def update_saran_stok(id_barang, stok_bjm, saran_stok, tgl_update):
+    """
+    Update saran_stok, stok_aktual, dan tgl_update di tbl_rekomendasi_stok
+    
+    Args:
+        id_barang: ID barang yang akan di-update
+        stok_bjm: Stok di gudang BJM (untuk stok_aktual)
+        saran_stok: Nilai saran stok yang sudah dihitung (harian)
+        tgl_update: Tanggal update (dari tanggal stok terakhir)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Convert date to string jika perlu
+    if hasattr(tgl_update, 'strftime'):
+        tgl_update_str = tgl_update.strftime('%Y-%m-%d')
+    else:
+        tgl_update_str = str(tgl_update)
+    
+    try:
+        update_query = """
+        UPDATE rekomendasi_stok 
+        SET stok_aktual = %s,
+            saran_stok = %s,
+            tgl_update = %s
+        WHERE id_barang = %s
+        """
+        
+        cursor.execute(update_query, (stok_bjm, saran_stok, tgl_update_str, id_barang))
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
 def get_rekomendasi_stok():
     conn = get_connection()
     query = """
