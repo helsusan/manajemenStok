@@ -422,6 +422,30 @@ def check_data_penjualan_bulan_ini():
         'message': f'Data penjualan bulan ini sudah ada (terakhir: {latest_date.strftime("%d %b %Y")})'
     }
 
+def get_daily_sales_6_months(id_barang):
+    """
+    Ambil data penjualan harian 6 bulan terakhir
+    """
+    conn = get_connection()
+    query = """
+    SELECT 
+        DATE(tgl_faktur) as tanggal,
+        SUM(kuantitas) as kuantitas
+    FROM penjualan 
+    WHERE id_barang = %s 
+        AND tgl_faktur >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+    GROUP BY DATE(tgl_faktur)
+    ORDER BY tanggal
+    """
+    
+    df = pd.read_sql(query, conn, params=(id_barang,))
+    conn.close()
+    
+    if len(df) > 0:
+        df['tanggal'] = pd.to_datetime(df['tanggal'])
+    
+    return df
+
 
 
 

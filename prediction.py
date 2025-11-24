@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 import warnings
 warnings.filterwarnings('ignore')
 import database
+import calendar
 
 def get_months_in_range(start_date, end_date):
     if not isinstance(start_date, datetime):
@@ -495,19 +496,38 @@ def process_end_of_month():
             if len(penjualan) == 0:
                 results['rekomendasi_failed'].append((nama, "Tidak ada data penjualan"))
                 continue
-            
-            # Hitung average & max daily usage
-            avg_monthly_sales = penjualan['kuantitas'].mean()
-            avg_daily_usage = avg_monthly_sales / 30
-            
-            max_monthly_sales = penjualan['kuantitas'].max()
-            max_daily_usage = max_monthly_sales / 30
-            
-            safety_stock = (max_daily_usage * max_lead_time) - (avg_daily_usage * avg_lead_time)
+
+            # ===== SAFETY STOCK =====
+
+            # Filter 6 bulan terakhir
+            cutoff_date = datetime.now() - timedelta(days=180)
+            monthly_sales_6_months = penjualan[penjualan.index >= pd.Timestamp(cutoff_date)]
+
+            # Ambil data penjualan harian
+            daily_sales = database.get_daily_sales_6_months(id_barang)
+
+            if len(daily_sales) == 0:
+                # Fallback: gunakan data bulanan dengan asumsi 30 hari
+                max_daily_sales = monthly_sales_6_months['kuantitas'].max() / 30
+                avg_daily_sales = monthly_sales_6_months['kuantitas'].mean() / 30
+            else:
+                max_daily_sales = daily_sales['kuantitas'].max()
+                avg_daily_sales = daily_sales['kuantitas'].mean()
+
+            safety_stock = (max_daily_sales * max_lead_time) - (avg_daily_sales * avg_lead_time)
             safety_stock = max(0, round(safety_stock, 2))
+
+            # ===== REORDER POINT =====
+
+            # Jumlah hari pada bulan depan
+            next_month = datetime.now().replace(day=1) + timedelta(days=32)
+            next_month = next_month.replace(day=1)
+            days_in_next_month = calendar.monthrange(next_month.year, next_month.month)[1]
+
+            avg_daily_usage = hasil_prediksi / days_in_next_month
             
             reorder_point = (avg_daily_usage * avg_lead_time) + safety_stock
-            reorder_point = round(reorder_point, 2)
+            
 
             latest_stok_date = database.get_latest_stok_date()
             if latest_stok_date:
