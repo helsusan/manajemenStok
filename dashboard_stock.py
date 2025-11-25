@@ -173,13 +173,18 @@ if btn_check_stock:
             # PERUBAHAN 7: Tambahkan status berdasarkan BJM vs Reorder Point
             def get_status(row):
                 bjm = row['gudang_bjm'] if not pd.isna(row['gudang_bjm']) else 0
+                sby = row['gudang_sby'] if not pd.isna(row['gudang_sby']) else 0
                 rop = row['reorder_point']
                 safety = row['safety_stock']
+                saran_stok = row['saran_stok'] if not pd.isna(row['saran_stok']) else 0
                 
                 if bjm <= safety:
                     return '🔴 KRITIS'
                 elif bjm <= rop:
-                    return '⚠️ PERLU REORDER'
+                    if sby >= saran_stok:
+                        return '⚠️ PERLU TRANSFER'
+                    else:
+                        return '⚠️ PERLU REORDER'
                 else:
                     return '✅ AMAN'
             
@@ -263,7 +268,7 @@ if btn_check_stock:
                     "saran_stok": st.column_config.NumberColumn(
                         "🛒 Saran Pembelian (Harian)",
                         format="%.2f",
-                        help="Saran pembelian dalam unit harian (dari database)"
+                        help="Saran pembelian stok untuk gudang BJM"
                     )
                 },
                 hide_index=True
