@@ -20,6 +20,37 @@ def run_query(query):
     conn.close()
     return result
 
+def normalize_to_date(date_value):
+    """
+    Normalize berbagai format tanggal jadi datetime.date
+    
+    Handles:
+    - datetime.date → return as is
+    - datetime.datetime → return .date()
+    - pd.Timestamp → return .date()
+    - string 'YYYY-MM-DD' → parse then .date()
+    - None → return None
+    """
+    from datetime import datetime, date
+    import pandas as pd
+    
+    if date_value is None:
+        return None
+    
+    if isinstance(date_value, date) and not isinstance(date_value, datetime):
+        return date_value
+    
+    if isinstance(date_value, (datetime, pd.Timestamp)):
+        return date_value.date()
+    
+    if isinstance(date_value, str):
+        try:
+            return datetime.strptime(date_value, '%Y-%m-%d').date()
+        except:
+            return None
+    
+    return None
+
 
 
 
@@ -375,7 +406,9 @@ def get_latest_penjualan_date():
     cursor.close()
     conn.close()
     
-    return result['latest'] if result['latest'] else None
+    if result and result['latest']:
+        return normalize_to_date(result['latest'])  # ← NORMALISASI
+    return None
 
 def check_data_penjualan_bulan_ini():
     """
@@ -400,10 +433,6 @@ def check_data_penjualan_bulan_ini():
             'current_month': current_month,
             'message': 'Belum ada data penjualan di database'
         }
-    
-    # Convert ke date jika datetime
-    if hasattr(latest_date, 'date'):
-        latest_date = latest_date.date()
     
     latest_month = latest_date.replace(day=1)
     
@@ -629,9 +658,38 @@ def get_latest_stok_date():
     cursor.close()
     conn.close()
     
-    return result['latest'] if result['latest'] else None
+    if result and result['latest']:
+        return normalize_to_date(result['latest'])  # ← NORMALISASI
+    return None
+
+def get_latest_stok_date_by_name(nama_barang):
+    conn = get_connection()
+    query = """
+        SELECT MAX(s.tanggal) AS latest
+        FROM stok s
+        JOIN barang b ON s.id_barang = b.id
+        WHERE b.nama = %s
+    """
+    
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(query, (nama_barang,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    
+    if result and result['latest']:
+        return normalize_to_date(result['latest'])
+    return None
 
 def get_stok_by_date(tanggal):
+    # NORMALISASI: Convert ke date lalu ke string
+    tanggal = normalize_to_date(tanggal)
+    if tanggal:
+        tanggal_str = tanggal.strftime('%Y-%m-%d')
+    else:
+        from datetime import datetime
+        tanggal_str = datetime.now().strftime('%Y-%m-%d')
+    
     conn = get_connection()
     query = """
     SELECT b.id, b.nama, s.gudang_bjm, s.gudang_sby,
@@ -683,10 +741,6 @@ def check_data_stok_hari_ini():
             'message': 'Belum ada data stok di database'
         }
     
-    # Convert ke date jika datetime
-    if hasattr(latest_date, 'date'):
-        latest_date = latest_date.date()
-    
     if latest_date < today:
         return {
             'exists': False,
@@ -732,11 +786,13 @@ def update_saran_stok(id_barang, stok_bjm, saran_stok, tgl_update):
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Convert date to string jika perlu
-    if hasattr(tgl_update, 'strftime'):
+    # NORMALISASI: Convert ke date, lalu ke string
+    tgl_update = normalize_to_date(tgl_update)
+    if tgl_update:
         tgl_update_str = tgl_update.strftime('%Y-%m-%d')
     else:
-        tgl_update_str = str(tgl_update)
+        from datetime import datetime
+        tgl_update_str = datetime.now().strftime('%Y-%m-%d')
     
     try:
         update_query = """
@@ -782,7 +838,9 @@ def get_latest_rekomendasi_date():
     cursor.close()
     conn.close()
     
-    return result['latest'] if result['latest'] else None
+    if result and result['latest']:
+        return normalize_to_date(result['latest'])  # ← NORMALISASI
+    return None
 
 def insert_rekomendasi_stok(id_barang, max_lead_time, avg_lead_time, safety_stock, reorder_point, 
                             stok_aktual, hasil_prediksi, saran_stok):

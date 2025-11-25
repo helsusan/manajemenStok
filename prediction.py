@@ -461,6 +461,9 @@ def process_end_of_month():
         nama = row['nama']
         info_barang = database.get_data_barang(nama)
 
+        print("-" * 100)
+        print(nama)
+
         if not info_barang:
             results['prediksi_failed'].append((nama, "Data barang tidak ditemukan"))
             continue
@@ -500,19 +503,31 @@ def process_end_of_month():
             # ===== SAFETY STOCK =====
 
             # Filter 6 bulan terakhir
-            cutoff_date = datetime.now() - timedelta(days=180)
-            monthly_sales_6_months = penjualan[penjualan.index >= pd.Timestamp(cutoff_date)]
+            # cutoff_date = datetime.now() - timedelta(days=180)
+            # # Normalisasi index penjualan ke datetime.date untuk konsistensi
+            # penjualan.index = pd.to_datetime(penjualan.index).date
+            # # Konversi cutoff_date ke date untuk perbandingan yang konsisten
+            # cutoff_date_normalized = cutoff_date.date()
+
+            # print("PENJUALAN INDEX : ", penjualan.index)
+            # print("CUTOFF DATE : ", cutoff_date_normalized)
+            # print("=" * 60)
+
+            # monthly_sales_6_months = penjualan[penjualan.index >= pd.Timestamp(cutoff_date_normalized)]
 
             # Ambil data penjualan harian
             daily_sales = database.get_daily_sales_6_months(id_barang)
 
-            if len(daily_sales) == 0:
-                # Fallback: gunakan data bulanan dengan asumsi 30 hari
-                max_daily_sales = monthly_sales_6_months['kuantitas'].max() / 30
-                avg_daily_sales = monthly_sales_6_months['kuantitas'].mean() / 30
-            else:
-                max_daily_sales = daily_sales['kuantitas'].max()
-                avg_daily_sales = daily_sales['kuantitas'].mean()
+            # if len(daily_sales) == 0:
+            #     # Fallback: gunakan data bulanan dengan asumsi 30 hari
+            #     max_daily_sales = monthly_sales_6_months['kuantitas'].max() / 30
+            #     avg_daily_sales = monthly_sales_6_months['kuantitas'].mean() / 30
+            # else:
+            #     max_daily_sales = daily_sales['kuantitas'].max()
+            #     avg_daily_sales = daily_sales['kuantitas'].mean()
+
+            max_daily_sales = daily_sales['kuantitas'].max()
+            avg_daily_sales = daily_sales['kuantitas'].mean()
 
             safety_stock = (max_daily_sales * max_lead_time) - (avg_daily_sales * avg_lead_time)
             safety_stock = max(0, round(safety_stock, 2))
@@ -527,9 +542,8 @@ def process_end_of_month():
             avg_daily_usage = hasil_prediksi / days_in_next_month
             
             reorder_point = (avg_daily_usage * avg_lead_time) + safety_stock
-            
 
-            latest_stok_date = database.get_latest_stok_date()
+            latest_stok_date = database.get_latest_stok_date_by_name(nama)
             if latest_stok_date:
                 stok_data = database.get_stok_by_date(latest_stok_date)
                 stok_row = stok_data[stok_data['id'] == id_barang]
