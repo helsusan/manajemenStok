@@ -52,9 +52,24 @@ btn_generate_temp = st.button(
     help=f"Generate prediksi sementara untuk visualisasi (tidak disimpan)"
 )
 
-# State untuk menyimpan prediksi sementara
-if 'temp_prediction' not in st.session_state:
-    st.session_state.temp_prediction = None
+# State untuk menyimpan prediksi sementara - SPECIFIC PER BARANG
+temp_pred_key = f"temp_prediction_{barang}"
+
+if temp_pred_key not in st.session_state:
+    st.session_state[temp_pred_key] = None
+
+# Reset temp prediction jika barang berubah
+if 'last_barang' in st.session_state and st.session_state.last_barang != barang:
+    # Barang berubah, clear temp prediction untuk barang sebelumnya
+    prev_temp_pred_key = f"temp_prediction_{st.session_state.last_barang}"
+    if prev_temp_pred_key in st.session_state:
+        st.session_state[prev_temp_pred_key] = None
+
+# Simpan barang saat ini untuk pengecekan selanjutnya
+st.session_state.last_barang = barang
+
+# Gunakan temp prediction untuk barang saat ini
+temp_prediction = st.session_state[temp_pred_key]
 
 # Handle generate prediksi sementara
 if btn_generate_temp:
@@ -66,11 +81,11 @@ if btn_generate_temp:
         )
         
         if result['status'] == 'success':
-            st.session_state.temp_prediction = result['data']
+            temp_prediction = result['data']
             st.success(f"✅ Prediksi berhasil di-generate")
         else:
             st.error(f"❌ {result['message']}")
-            st.session_state.temp_prediction = None
+            temp_prediction = None
 
 st.markdown("---")
 
@@ -187,8 +202,8 @@ if len(prediksi_df) > 0:
     ))
 
 # Trace 3: Prediksi Sementara (jika ada)
-if st.session_state.temp_prediction is not None:
-    temp_pred = st.session_state.temp_prediction
+if temp_prediction is not None:
+    temp_pred = temp_prediction
     fig.add_trace(go.Scatter(
         x=temp_pred['tanggal'].map(lambda d: d.strftime('%Y-%m')),
         y=temp_pred['kuantitas'].values,
@@ -216,8 +231,8 @@ all_dates = penjualan_df.index
 if len(prediksi_df) > 0:
     all_dates = all_dates.union(prediksi_df.index)
 
-if st.session_state.temp_prediction is not None:
-    temp_dates = pd.DatetimeIndex(st.session_state.temp_prediction['tanggal'])
+if temp_prediction is not None:
+    temp_dates = pd.DatetimeIndex(temp_prediction['tanggal'])
     all_dates = all_dates.union(temp_dates)
 
 # 🔥 FIX: Samakan semua tipe datetime
