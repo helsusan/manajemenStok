@@ -82,69 +82,17 @@ def prediksi_arima(id_barang, p, d, q, base_date=None):
     )
     sales = sales.reindex(all_months, fill_value=0)
     sales.index.name = None
-    
-    # Periksa apakah data cukup
-    # available_months = len(sales)
-    
-    # if available_months < min_data_months:
-    #     # Coba lengkapi dengan data prediksi yang sudah ada
-    #     print(f"   ⚠ Data penjualan hanya {available_months} bulan, mencoba melengkapi dengan data prediksi...")
-        
-    #     # Cari data prediksi sebelum base_date
-    #     if base_date is None:
-    #         base_date = datetime.now()
-        
-    #     # FIX: Pastikan base_date adalah datetime
-    #     if not isinstance(base_date, datetime):
-    #         base_date = datetime.combine(base_date, datetime.min.time())
-        
-    #     # Ambil prediksi hingga bulan base_date
-    #     last_sales_date = sales.index[-1] if len(sales) > 0 else base_date - relativedelta(months=12)
-        
-    #     # FIX: Pastikan last_sales_date adalah datetime untuk operasi
-    #     if isinstance(last_sales_date, (pd.Timestamp, np.datetime64)):
-    #         last_sales_date = pd.Timestamp(last_sales_date).to_pydatetime()
-    #     elif not isinstance(last_sales_date, datetime):
-    #         last_sales_date = datetime.combine(last_sales_date, datetime.min.time())
-        
-    #     # Cari prediksi antara last_sales_date dan base_date
-    #     prediksi_existing = database.get_data_prediksi(
-    #         id_barang,
-    #         (last_sales_date + relativedelta(months=1)).strftime('%Y-%m-%d'),
-    #         base_date.strftime('%Y-%m-%d')
-    #     )
-        
-    #     if len(prediksi_existing) > 0:
-    #         # Gabungkan sales dengan prediksi
-    #         combined = pd.concat([sales, prediksi_existing])
-    #         combined = combined[~combined.index.duplicated(keep='first')]
-    #         combined = combined.sort_index()
-    #         # FIX: Isi NaN dengan 0 setelah concat
-    #         combined['kuantitas'] = combined['kuantitas'].fillna(0)
-    #         sales = combined
-    #         print(f"   ✓ Data dilengkapi dengan {len(prediksi_existing)} bulan prediksi")
-    #         print(f"   ✓ Total data: {len(sales)} bulan")
-        
-    #     # Cek lagi setelah dilengkapi
-    #     if len(sales) < min_data_months:
-    #         raise ValueError(
-    #             f"Data tidak cukup untuk prediksi ARIMA. "
-    #             f"Minimal {min_data_months} bulan, tersedia {len(sales)} bulan "
-    #             f"(penjualan: {available_months}, prediksi: {len(prediksi_existing) if len(prediksi_existing) > 0 else 0}). "
-    #         )
-    
+
     ori_sales = sales.copy()
 
     print("ORI SALES")
     print(ori_sales)
     print("=" * 60)
-    
-    # Smoothing dengan Savitzky-Golay filter
-    # if len(sales) >= 5:
-    #     window_size = min(5, len(sales) if len(sales) % 2 == 1 else len(sales)-1)
-    #     sales['kuantitas'] = savgol_filter(sales['kuantitas'], window_size, 2)
 
-    sales['kuantitas'] = savgol_filter(sales['kuantitas'], 5, 2)
+    from sklearn.preprocessing import PowerTransformer
+    transformer = PowerTransformer(method='yeo-johnson', standardize=True)
+    transformed_data = transformer.fit_transform(sales[['kuantitas']])
+    sales['kuantitas'] = transformed_data
 
     print("ORI SALES")
     print(ori_sales)
@@ -156,15 +104,17 @@ def prediksi_arima(id_barang, p, d, q, base_date=None):
     result = model.fit()
 
     forecast = result.forecast(steps=len(future_dates))
-    mean_residual = (ori_sales['kuantitas'] - sales['kuantitas']).mean()
-    forecast_values = forecast + mean_residual
-
-    # Pastikan tidak ada nilai negatif
+    forecast_values = forecast.values if hasattr(forecast, 'values') else forecast
+    forecast_values = forecast_values.reshape(-1, 1)
+    forecast_values = transformer.inverse_transform(forecast_values)
     forecast_values = np.maximum(forecast_values, 0)
+
+    # 5. Flatten kembali jadi 1D array agar mudah di-slice
+    forecast_values = forecast_values.flatten()
 
     result = pd.DataFrame({
         'tanggal': future_dates,
-        'kuantitas': forecast_values.values
+        'kuantitas': forecast_values
     })
 
     print("HASIL PREDIKSI ARIMA")

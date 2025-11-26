@@ -30,7 +30,7 @@ import database
 import backfill_prediction
 
 # Misal 1 Agustus 2025 -> prediksi Sep, Okt, Nov
-SIMULATED_DATE = datetime(2025, 5, 1)  
+SIMULATED_DATE = datetime(2025, 8, 1)  
 
 # Prediksi 3 bulan ke depan
 MONTHS_AHEAD = 3
