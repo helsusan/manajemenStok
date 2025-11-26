@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.arima.model import ARIMA
-from scipy.signal import savgol_filter
+from sklearn.preprocessing import PowerTransformer
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import warnings
@@ -74,7 +74,6 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     print(f"Total data: {len(sales)} bulan")
     print("=" * 60)
 
-    from sklearn.preprocessing import PowerTransformer
     transformer = PowerTransformer(method='yeo-johnson', standardize=True)
     # 1. Transform hanya kolom kuantitas (gunakan [[ ]] agar jadi 2D array)
     transformed_data = transformer.fit_transform(sales[['kuantitas']])
