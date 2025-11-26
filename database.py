@@ -221,6 +221,11 @@ def get_all_data_penjualan(id_barang):
     """
 
     df = pd.read_sql(query, conn, params=(id_barang,))
+
+    # 2. Ambil tanggal 'GLOBAL' (Tanggal transaksi paling akhir di seluruh sistem)
+    query_global = "SELECT MAX(tgl_faktur) as max_date FROM penjualan"
+    df_global = pd.read_sql(query_global, conn)
+
     conn.close()
         
     if len(df) > 0:
@@ -228,7 +233,22 @@ def get_all_data_penjualan(id_barang):
         df = df.set_index('tanggal').sort_index()
         
         first_date = df.index.min()
-        last_date = df.index.max()
+        last_date_product = df.index.max()
+
+        # Ambil tanggal terakhir global (misal: Oktober)
+        global_max = pd.to_datetime(df_global['max_date'].iloc[0])
+        
+        # Tentukan batas akhir grafik
+        if pd.notna(global_max):
+            # Normalisasi ke awal bulan (tanggal 1) agar seragam
+            global_max = global_max.replace(day=1)
+            
+            # Gunakan tanggal yang paling baru (antara barang ini vs global)
+            # Jadi kalau barang ini stop Juli, tapi toko ada data sampai Oktober,
+            # kita paksa grafik lanjut sampai Oktober.
+            last_date = max(last_date_product, global_max)
+        else:
+            last_date = last_date_product
 
         # Buat range bulanan lengkap dari awal sampai akhir
         all_months = pd.date_range(start=first_date, end=last_date, freq='MS')
