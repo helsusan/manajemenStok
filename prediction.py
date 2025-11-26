@@ -74,7 +74,13 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     print(f"Total data: {len(sales)} bulan")
     print("=" * 60)
 
-    sales['kuantitas'] = savgol_filter(sales['kuantitas'], 5, 2)
+    from sklearn.preprocessing import PowerTransformer
+    transformer = PowerTransformer(method='yeo-johnson', standardize=True)
+    # 1. Transform hanya kolom kuantitas (gunakan [[ ]] agar jadi 2D array)
+    transformed_data = transformer.fit_transform(sales[['kuantitas']])
+    # 2. Masukkan kembali hasil transform ke DataFrame 'sales'
+    # Ini penting agar Index (Tanggal) tidak hilang dan bisa dipanggil sales['kuantitas']
+    sales['kuantitas'] = transformed_data
 
     model = ARIMA(sales['kuantitas'], order=(p,d,q))
     result = model.fit()
@@ -94,16 +100,23 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     total_steps = months_ahead + len(target_dates) - 1
     forecast = result.forecast(steps=total_steps)
     
-    mean_residual = (ori_sales['kuantitas'] - sales['kuantitas']).mean()
-    forecast_values = forecast + mean_residual
+    # --- PERBAIKAN DI SINI (INVERSE TRANSFORM) ---
+    # Pastikan forecast diubah ke bentuk 2D array sebelum inverse transform
+    # Jika forecast outputnya Series pandas, gunakan .values
+    forecast_values = forecast.values if hasattr(forecast, 'values') else forecast
+    forecast_values = forecast_values.reshape(-1, 1)
+    forecast_values = transformer.inverse_transform(forecast_values)
     forecast_values = np.maximum(forecast_values, 0)
+
+    # 5. Flatten kembali jadi 1D array agar mudah di-slice
+    forecast_values = forecast_values.flatten()
     
     # Ambil hanya nilai untuk target_dates
     forecast_for_targets = forecast_values[months_ahead-1:months_ahead-1+len(target_dates)]
 
     result_df = pd.DataFrame({
         'tanggal': target_dates,
-        'kuantitas': forecast_for_targets.values
+        'kuantitas': forecast_for_targets
     })
 
     print("HASIL PREDIKSI ARIMA")
@@ -220,119 +233,6 @@ def generate_all_prediksi():
         print("   ------------------------------------------")
 
     print("\n🎯 Semua prediksi berhasil diproses!")
-
-# def generate_prediksi_official(info_barang, base_date=None):
-#     """
-#     Generate prediksi OFFICIAL untuk 1 bulan ke depan (DISIMPAN ke DB)
-#     Digunakan untuk proses akhir bulan
-    
-#     Args:
-#         info_barang: Tuple dari database.get_data_barang()
-#         base_date: Tanggal referensi (default: datetime.now())
-    
-#     Returns:
-#         dict dengan status dan data prediksi
-#     """
-#     id_barang = info_barang[0]
-#     nama_barang = info_barang[1]
-#     model_prediksi = info_barang[2]
-#     p = int(info_barang[3]) if pd.notna(info_barang[3]) else None
-#     d = int(info_barang[4]) if pd.notna(info_barang[4]) else None
-#     q = int(info_barang[5]) if pd.notna(info_barang[5]) else None
-
-#     try:
-#         # Generate untuk 1 BULAN ke depan saja
-#         if model_prediksi == 'ARIMA':
-#             if p is None or d is None or q is None:
-#                 raise ValueError("Order ARIMA (p, d, q) harus disediakan")
-            
-#             try:
-#                 # Ubah get_next_3_months jadi ambil 1 bulan saja
-#                 if base_date is None:
-#                     base_date = datetime.now()
-                
-#                 next_month = base_date.replace(day=1) + relativedelta(months=1)
-#                 future_dates = [next_month]
-                
-#                 sales = database.get_all_data_penjualan(id_barang)
-#                 sales.index.name = None
-#                 ori_sales = sales.copy()
-                
-#                 if len(sales) >= 5:
-#                     window_size = min(5, len(sales) if len(sales) % 2 == 1 else len(sales)-1)
-#                     sales['kuantitas'] = savgol_filter(sales['kuantitas'], window_size, 2)
-                
-#                 model = ARIMA(sales['kuantitas'], order=(p,d,q))
-#                 result_model = model.fit()
-#                 forecast = result_model.forecast(steps=1)
-#                 mean_residual = (ori_sales['kuantitas'] - sales['kuantitas']).mean()
-#                 forecast_values = forecast + mean_residual
-#                 forecast_values = np.maximum(forecast_values, 0)
-                
-#                 result = pd.DataFrame({
-#                     'tanggal': future_dates,
-#                     'kuantitas': forecast_values.values
-#                 })
-#                 used_model = 'ARIMA'
-                
-#             except ValueError as e:
-#                 if "Data tidak cukup" in str(e):
-#                     print(f"   ⚠ ARIMA gagal: {str(e)}")
-#                     print(f"   🔄 Fallback ke model Mean...")
-                    
-#                     combined_data = database.get_last_12_data_penjualan(id_barang)
-#                     mean_value = combined_data['kuantitas'].tail(12).mean()
-                    
-#                     if base_date is None:
-#                         base_date = datetime.now()
-#                     next_month = base_date.replace(day=1) + relativedelta(months=1)
-                    
-#                     result = pd.DataFrame({
-#                         'tanggal': [next_month],
-#                         'kuantitas': [mean_value]
-#                     })
-#                     used_model = 'MEAN (Fallback)'
-#                 else:
-#                     raise
-                    
-#         elif model_prediksi == 'Mean':
-#             combined_data = database.get_last_12_data_penjualan(id_barang)
-#             mean_value = combined_data['kuantitas'].tail(12).mean()
-            
-#             if base_date is None:
-#                 base_date = datetime.now()
-#             next_month = base_date.replace(day=1) + relativedelta(months=1)
-            
-#             result = pd.DataFrame({
-#                 'tanggal': [next_month],
-#                 'kuantitas': [mean_value]
-#             })
-#             used_model = 'MEAN'
-#         else:
-#             raise ValueError(f"Model prediksi tidak ditemukan")
-        
-#         # SIMPAN ke database
-#         for idx, row in result.iterrows():
-#             database.insert_hasil_prediksi(
-#                 id_barang=id_barang,
-#                 tanggal=row['tanggal'],
-#                 kuantitas=round(row['kuantitas'], 2)
-#             )
-
-#         return {
-#             'status': 'success',
-#             'message': f"✓ Prediksi official berhasil (Model: {used_model})",
-#             'data': result,
-#             'model': used_model
-#         }
-
-#     except Exception as e:
-#         return {
-#             'status': 'error',
-#             'message': f"✗ Error: {str(e)}",
-#             'data': None
-#         }
-
 
 def generate_prediksi_temp(info_barang, start_month, end_month):
 
@@ -502,29 +402,8 @@ def process_end_of_month():
 
             # ===== SAFETY STOCK =====
 
-            # Filter 6 bulan terakhir
-            # cutoff_date = datetime.now() - timedelta(days=180)
-            # # Normalisasi index penjualan ke datetime.date untuk konsistensi
-            # penjualan.index = pd.to_datetime(penjualan.index).date
-            # # Konversi cutoff_date ke date untuk perbandingan yang konsisten
-            # cutoff_date_normalized = cutoff_date.date()
-
-            # print("PENJUALAN INDEX : ", penjualan.index)
-            # print("CUTOFF DATE : ", cutoff_date_normalized)
-            # print("=" * 60)
-
-            # monthly_sales_6_months = penjualan[penjualan.index >= pd.Timestamp(cutoff_date_normalized)]
-
             # Ambil data penjualan harian
             daily_sales = database.get_daily_sales_6_months(id_barang)
-
-            # if len(daily_sales) == 0:
-            #     # Fallback: gunakan data bulanan dengan asumsi 30 hari
-            #     max_daily_sales = monthly_sales_6_months['kuantitas'].max() / 30
-            #     avg_daily_sales = monthly_sales_6_months['kuantitas'].mean() / 30
-            # else:
-            #     max_daily_sales = daily_sales['kuantitas'].max()
-            #     avg_daily_sales = daily_sales['kuantitas'].mean()
 
             max_daily_sales = daily_sales['kuantitas'].max()
             avg_daily_sales = daily_sales['kuantitas'].mean()
