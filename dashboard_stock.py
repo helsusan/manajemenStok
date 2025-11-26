@@ -62,7 +62,7 @@ st.markdown("---")
 st.header("🔍 Pengecekan Stok Harian")
 
 btn_check_stock = st.button(
-    "🔍 Jalankan Pengecekan Stok Harian",
+    "Jalankan Pengecekan Stok Harian",
     type="primary",
     use_container_width=True,
     help="Bandingkan stok aktual hari ini dengan reorder point"
@@ -178,13 +178,11 @@ if btn_check_stock:
                 safety = row['safety_stock']
                 saran_stok = row['saran_stok'] if not pd.isna(row['saran_stok']) else 0
                 
-                if bjm <= safety:
-                    return '🔴 KRITIS'
-                elif bjm <= rop:
+                if bjm <= rop:
                     if sby >= saran_stok:
-                        return '⚠️ PERLU TRANSFER'
+                        return '⚠️ TRANSFER'
                     else:
-                        return '⚠️ PERLU REORDER'
+                        return '🔴 REORDER'
                 else:
                     return '✅ AMAN'
             
@@ -200,8 +198,8 @@ if btn_check_stock:
             st.subheader("📋 Hasil Pengecekan")
             
             # Hitung summary
-            kritis = len(merged[merged['status'] == '🔴 KRITIS'])
-            perlu_reorder = len(merged[merged['status'] == '⚠️ PERLU REORDER'])
+            kritis = len(merged[merged['status'] == '🔴 REORDER'])
+            perlu_reorder = len(merged[merged['status'] == '⚠️ TRANSFER'])
             aman = len(merged[merged['status'] == '✅ AMAN'])
             
             col1, col2, col3, col4 = st.columns(4)
@@ -210,10 +208,10 @@ if btn_check_stock:
                 st.metric("Total Barang", len(merged))
             
             with col2:
-                st.metric("🔴 Kritis", kritis)
+                st.metric("🔴 Reorder", kritis)
             
             with col3:
-                st.metric("⚠️ Perlu Reorder", perlu_reorder)
+                st.metric("⚠️ Transfer", perlu_reorder)
             
             with col4:
                 st.metric("✅ Aman", aman)
@@ -221,7 +219,7 @@ if btn_check_stock:
             st.markdown("---")
             
             # PERUBAHAN 8: Tabel menampilkan SEMUA barang
-            st.subheader("📊 Status Semua Barang")
+            st.subheader("📊 Status Stok Semua Barang")
             
             # Kolom yang ditampilkan
             display_cols = [
@@ -273,34 +271,3 @@ if btn_check_stock:
                 },
                 hide_index=True
             )
-            
-            # Info tambahan
-            st.markdown("---")
-            st.markdown("### 📖 Keterangan:")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("""
-                **Status Barang:**
-                - 🔴 **KRITIS**: Stok BJM ≤ Safety Stock (sangat urgent!)
-                - ⚠️ **PERLU REORDER**: Stok BJM ≤ Reorder Point (segera order)
-                - ✅ **AMAN**: Stok BJM > Reorder Point (stok cukup)
-                """)
-            
-            with col2:
-                st.markdown("""
-                **Saran Pembelian (Harian):**
-                - Formula: `(Reorder Point + Prediksi Harian) - Stok BJM`
-                - Prediksi Harian: Prediksi Bulanan / 30 hari
-                - Basis perhitungan: **Hanya stok BJM**
-                - Stok SBY: Informasi tambahan saja
-                """)
-            
-            # Warning jika ada yang kritis
-            if kritis > 0:
-                st.error(f"⚠️ **PERHATIAN**: {kritis} barang dalam status KRITIS! Segera lakukan pemesanan.")
-            elif perlu_reorder > 0:
-                st.warning(f"⚠️ {perlu_reorder} barang perlu reorder. Pertimbangkan untuk melakukan pemesanan segera.")
-            else:
-                st.success("✅ Semua barang dalam kondisi aman!")
