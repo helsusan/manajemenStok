@@ -96,6 +96,75 @@ def get_all_data_barang():
     conn.close()
     return df
 
+def update_barang(id_barang, nama, model, p, d, q):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+        UPDATE barang 
+        SET nama = %s, model_prediksi = %s, p = %s, d = %s, q = %s 
+        WHERE id = %s
+        """
+        # Handle nilai NaN/None untuk p,d,q
+        p = p if pd.notna(p) else None
+        d = d if pd.notna(d) else None
+        q = q if pd.notna(q) else None
+        
+        cursor.execute(query, (nama, model, p, d, q, id_barang))
+        conn.commit()
+    except Exception as e:
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+def delete_barang(id_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        query = "DELETE FROM barang WHERE id = %s"
+        cursor.execute(query, (id_barang,))
+        conn.commit()
+    except Exception as e:
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+def check_related_data(id_barang):
+    """
+    Cek apakah barang memiliki data terkait di tabel lain.
+    Returns: Dict berisi nama tabel dan jumlah data, misal {'Penjualan': 10, 'Stok': 5}
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    related = {}
+    try:
+        # List tabel yang berelasi dengan barang
+        # Format: (nama_tabel_database, label_yang_muncul_di_ui)
+        tables = [
+            ('penjualan', 'Data Penjualan'),
+            ('stok', 'Data Stok'),
+            ('prediksi', 'Data Prediksi'),
+            ('rekomendasi_stok', 'Rekomendasi Stok')
+        ]
+        
+        for table, label in tables:
+            # Cek count data
+            query = f"SELECT COUNT(*) FROM {table} WHERE id_barang = %s"
+            cursor.execute(query, (id_barang,))
+            count = cursor.fetchone()[0]
+            
+            if count > 0:
+                related[label] = count
+                
+        return related
+    except Exception as e:
+        return {}
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 
