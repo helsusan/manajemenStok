@@ -6,8 +6,8 @@ import prediction
 
 st.set_page_config(page_title="Input Sales", page_icon="📊", layout="wide")
 
-st.title("📊 Upload Data Penjualan")
-st.write("Upload file Excel data penjualan untuk dimasukkan ke database")
+st.title("📥 Input Data Penjualan")
+# st.write("Upload file Excel data penjualan untuk dimasukkan ke database")
 
 with st.expander("ℹ️ Format File Excel"):
     st.write("""
@@ -78,8 +78,8 @@ if uploaded_file is not None:
 
 st.divider()
     
-st.subheader("🔍 Data Penjualan")
-st.write("ℹ️ Data pada tabel ditampilkan dari tanggal terbaru")
+st.header("🔍 Data Penjualan")
+st.caption("Data pada tabel ditampilkan dari tanggal terbaru")
     
 if st.button("Tampilkan Data Penjualan"):
     try:
@@ -107,35 +107,32 @@ if st.button("Tampilkan Data Penjualan"):
 
 st.divider()
 
-st.subheader("📅 Proses Akhir Bulan")
+st.header("📅 Proses Akhir Bulan")
 
-st.markdown("""
-### 🎯 Tujuan Proses Ini:
-Setelah input laporan penjualan bulanan, klik button di bawah untuk:
-1. **Generate Prediksi Official** untuk bulan depan (disimpan di database)
-2. **Hitung Safety Stock & Reorder Point** untuk bulan depan
-3. **Simpan Rekomendasi Pembelian**
-
-⚠️ **Penting**: Jalankan proses ini SETELAH input semua data penjualan bulan ini!
-""")
-
-st.markdown("---")
+with st.expander("ℹ️ Tujuan Proses"):
+    st.write("""
+    Proses ini akan melakukan:
+    - Generate prediksi untuk bulan depan
+    - Hitung safety stock & reorder point untuk bulan depan
+             
+    ⚠️ **Penting**: Jalankan proses ini SETELAH input semua data penjualan bulan ini!
+    """)
+    
+# st.markdown("---")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("📊 Status Data")
     latest_penjualan = database.get_latest_penjualan_date()
-    st.info(f"Data penjualan terakhir: {latest_penjualan if latest_penjualan else '-'}")
+    st.caption(f"📍**Data penjualan terakhir:** {latest_penjualan if latest_penjualan else '-'}")
 
 with col2:
-    st.subheader("🔮 Prediksi Bulan Depan")
     next_month = (datetime.now().replace(day=1) + pd.DateOffset(months=1)).strftime('%B %Y')
-    st.info(f"Akan generate prediksi untuk: **{next_month}**")
+    st.caption(f"🔮 **Prediksi untuk bulan**: {next_month}")
 
-st.markdown("---")
+# st.markdown("---")
 
-if st.button("🚀 Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
+if st.button("Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
     
     with st.spinner("Memproses..."):
         progress_bar = st.progress(0)

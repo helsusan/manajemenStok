@@ -6,19 +6,18 @@ import numpy as np
 
 st.set_page_config(page_title="Data Stok", page_icon="📦", layout="wide")
 
-st.title("📦 Manajemen Data Stok")
-
 # ================================================
 # SECTION 1: INPUT DATA STOK
 # ================================================
 
-st.header("📥 Input Data Stok Harian")
+st.title("📥 Input Data Stok")
 
 col1, col2 = st.columns([2, 1])
 
 with col1:
     with st.expander("ℹ️ Format File Excel"):
         st.write("""
+        - Data yang di-input merupakan data stok harian
         - Kolom: `Nama Barang`, `Gudang BJM`, `Gudang SBY`
         - Nama Barang harus sudah ada di database
         """)
@@ -84,7 +83,7 @@ st.markdown("---")
 # SECTION 2: LIHAT DATA STOK
 # ================================================
 
-st.header("📊 Data Stok di Database")
+st.header("🔍 Data Stok")
 
 # Info tanggal terbaru
 latest_date = database.get_latest_stok_date()
@@ -136,7 +135,7 @@ st.markdown("---")
 # SECTION 3: KELOLA LEAD TIME
 # ================================================
 
-st.header("⏱️ Kelola Lead Time")
+st.header("⏱️ Lead Time")
 
 st.markdown("""
 **Lead Time** adalah jeda waktu dari pemesanan produk ke supplier sampai barang tiba di Gudang Banjarmasin.

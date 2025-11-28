@@ -195,7 +195,7 @@ if btn_check_stock:
             
             # Summary
             st.markdown("---")
-            st.subheader("📋 Hasil Pengecekan")
+            st.subheader("📋 Hasil Pengecekan Stok")
             
             # Hitung summary
             kritis = len(merged[merged['status'] == '🔴 REORDER'])

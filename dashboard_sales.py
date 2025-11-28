@@ -46,7 +46,7 @@ with col2:
     st.caption(f"📅 Range: {next_month.strftime('%b %Y')} - {end_month.strftime('%b %Y')}")
 
 btn_generate_temp = st.button(
-    f"📊 Generate Prediksi {months_ahead} Bulan",
+    f"Generate Prediksi {months_ahead} Bulan",
     use_container_width=True,
     type="primary",
     help=f"Generate prediksi sementara untuk visualisasi (tidak disimpan)"
