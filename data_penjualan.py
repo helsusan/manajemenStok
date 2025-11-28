@@ -4,7 +4,7 @@ from datetime import datetime
 import database
 import prediction
 
-st.set_page_config(page_title="Input Sales", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Data Penjualan", page_icon="📊", layout="wide")
 
 st.title("📥 Input Data Penjualan")
 # st.write("Upload file Excel data penjualan untuk dimasukkan ke database")
@@ -43,13 +43,13 @@ if uploaded_file is not None:
 
         st.success("✅ Data berhasil dibersihkan!")
                 
-        st.subheader("Preview Data")
+        st.subheader("📋 Preview Data")
         st.dataframe(df.head(10))
         st.info(f"Total baris: {len(df)}")
 
         print(df.applymap(type).head())
 
-        if st.button("📤 Upload", type="primary", use_container_width=True):
+        if st.button("📤 Upload Data", type="primary", use_container_width=True):
             with st.spinner("Mengupload data ke database..."):
                 success_count, error_count, errors = database.insert_data_penjualan(df)
                         
@@ -79,26 +79,126 @@ if uploaded_file is not None:
 st.divider()
     
 st.header("🔍 Data Penjualan")
-st.caption("Data pada tabel ditampilkan dari tanggal terbaru")
-    
-if st.button("Tampilkan Data Penjualan"):
-    try:
-        results = database.run_query("""SELECT no_faktur AS 'No Faktur',
-                                     tgl_faktur AS 'Tgl Faktur',
-                                     nama_pelanggan AS 'Nama Pelanggan',
-                                     id_barang AS 'Keterangan Barang',
-                                     kuantitas AS 'Kuantitas',
-                                     jumlah AS 'Jumlah' FROM penjualan ORDER BY tgl_faktur DESC""")
-            
-        if results:
-            df_penjualan = pd.DataFrame(results)
-            st.dataframe(df_penjualan, use_container_width=True)
-        else:
-            st.warning("Tidak ada data penjualan di database")
-                
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+# st.caption("Data pada tabel ditampilkan dari tanggal terbaru")
 
+# Filter tanggal
+col1, col2 = st.columns([1, 3])
+
+with col1:
+    # Ambil semua tanggal unik dari data penjualan
+    all_dates_query = "SELECT DISTINCT DATE(tgl_faktur) as tanggal FROM penjualan ORDER BY tanggal DESC"
+    all_dates_result = database.run_query(all_dates_query)
+    
+    if all_dates_result:
+        available_dates = [datetime.strptime(str(row['tanggal']), '%Y-%m-%d').date() for row in all_dates_result]
+        
+        # Date input dengan calendar
+        selected_date = st.date_input(
+            "Filter Tanggal",
+            value=None,
+            help="Pilih tanggal untuk filter data penjualan (kosongkan untuk tampilkan semua)"
+        )
+    else:
+        selected_date = None
+        st.info("Belum ada data penjualan")
+
+# Query data penjualan
+try:
+    if selected_date:
+        # Filter berdasarkan tanggal
+        query = """
+        SELECT 
+            id,
+            no_faktur AS 'No Faktur',
+            tgl_faktur AS 'Tgl Faktur',
+            nama_pelanggan AS 'Nama Pelanggan',
+            id_barang AS 'ID Barang',
+            kuantitas AS 'Kuantitas',
+            jumlah AS 'Jumlah' 
+        FROM penjualan 
+        WHERE DATE(tgl_faktur) = %s
+        ORDER BY tgl_faktur DESC
+        """
+        conn = database.get_connection()
+        df_penjualan = pd.read_sql(query, conn, params=(selected_date,))
+        conn.close()
+    else:
+        # Tampilkan semua data
+        results = database.run_query("""
+            SELECT 
+                id,
+                no_faktur AS 'No Faktur',
+                tgl_faktur AS 'Tgl Faktur',
+                nama_pelanggan AS 'Nama Pelanggan',
+                id_barang AS 'ID Barang',
+                kuantitas AS 'Kuantitas',
+                jumlah AS 'Jumlah' 
+            FROM penjualan 
+            ORDER BY tgl_faktur DESC
+        """)
+        df_penjualan = pd.DataFrame(results) if results else pd.DataFrame()
+    
+    if not df_penjualan.empty:
+        # Formant tanggal
+        df_penjualan['Tgl Faktur'] = pd.to_datetime(df_penjualan['Tgl Faktur']).dt.strftime('%d %b %Y')
+
+        # Tambahkan kolom select untuk delete
+        df_penjualan.insert(0, 'Hapus', False)
+        
+        # Tampilkan dengan data_editor
+        edited_df = st.data_editor(
+            df_penjualan,
+            use_container_width=True,
+            column_config={
+                "Hapus": st.column_config.CheckboxColumn(
+                    "Pilih",
+                    help="Centang untuk menghapus data",
+                    default=False
+                ),
+                "id": None,  # Hide ID column
+                "Tgl Faktur": st.column_config.DateColumn("Tgl Faktur", format="DD/MM/YYYY")
+            },
+            disabled=["No Faktur", "Tgl Faktur", "Nama Pelanggan", "ID Barang", "Kuantitas", "Jumlah"],
+            hide_index=True,
+            key="penjualan_editor"
+        )
+        
+        # Tombol delete
+        selected_for_delete = edited_df[edited_df['Hapus'] == True]
+        
+        if len(selected_for_delete) > 0:
+            st.warning(f"⚠️ {len(selected_for_delete)} data akan dihapus")
+            
+            col1, col2 = st.columns([1, 5])
+            with col1:
+                if st.button("🗑️ Hapus Data Terpilih", type="primary"):
+                    try:
+                        conn = database.get_connection()
+                        cursor = conn.cursor()
+                        
+                        deleted_count = 0
+                        for idx, row in selected_for_delete.iterrows():
+                            delete_query = "DELETE FROM penjualan WHERE id = %s"
+                            cursor.execute(delete_query, (int(row['id']),))
+                            deleted_count += 1
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        
+                        st.success(f"✅ Berhasil menghapus {deleted_count} data!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+        
+        # Info jumlah data
+        st.caption(f"📊 Total: {len(df_penjualan)} data")
+    else:
+        st.warning("Tidak ada data penjualan" + (f" pada tanggal {selected_date}" if selected_date else ""))
+        
+except Exception as e:
+    st.error(f"Error: {str(e)}")
     
         
 

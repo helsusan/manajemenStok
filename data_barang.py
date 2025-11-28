@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 import database
 
-st.set_page_config(page_title="Data Barang", page_icon="", layout="wide")
+st.set_page_config(page_title="Data Barang", page_icon="🧰", layout="wide")
 
 st.header("➕ Tambah Barang Baru")
  
@@ -50,6 +50,7 @@ st.divider()
 # Section untuk melihat data barang yang tersedia
 st.subheader("🔍 Daftar Barang")
 st.caption("Double klik pada sel untuk mengedit. Pilih baris dan tekan tombol delete di keyboard untuk menghapus.")
+st.info("⚠️ Menghapus data barang akan menghapus seluruh data penjualan, prediksi, stok, dan rekomendasi stok untuk barang tersebut.")
     
 # --- FUNGSI PROSES SIMPAN (Dipakai ulang) ---
 def process_save_changes(changes, df_barang):
@@ -58,7 +59,7 @@ def process_save_changes(changes, df_barang):
             # 1. Hapus Data (Deleted Rows)
             if changes["deleted_rows"]:
                 for index in changes["deleted_rows"]:
-                    id_to_delete = df_barang.iloc[index]['id']
+                    id_to_delete = int(df_barang.iloc[index]['id'])  # ← TAMBAHKAN int() DI SINI
                     # Langsung delete (Cascade di DB akan mengurus anak-anaknya)
                     database.delete_barang(id_to_delete)
 
@@ -68,8 +69,12 @@ def process_save_changes(changes, df_barang):
                     row = df_barang.iloc[index].to_dict()
                     row.update(new_values)
                     database.update_barang(
-                        row['id'], row['nama'], row['model_prediksi'], 
-                        row['p'], row['d'], row['q']
+                        int(row['id']),  # ← TAMBAHKAN int() DI SINI JUGA
+                        row['nama'], 
+                        row['model_prediksi'], 
+                        row['p'], 
+                        row['d'], 
+                        row['q']
                     )
             
             # 3. Tambah Data (Added Rows)
@@ -106,9 +111,13 @@ try:
     df_barang = database.get_all_data_barang()
     
     if not df_barang.empty:
+        # SORT ALFABETIS BERDASARKAN NAMA (ASCENDING)
+        df_barang = df_barang.sort_values('nama', ascending=True).reset_index(drop=True)
+
         # Konfigurasi Kolom
         column_config = {
-            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            # "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "id": None,
             "nama": st.column_config.TextColumn("Nama Barang", required=True, width="medium"),
             "model_prediksi": st.column_config.SelectboxColumn("Model", options=["ARIMA", "Mean"], width="small", required=True),
             "p": st.column_config.NumberColumn("p", width="small"),
@@ -127,7 +136,7 @@ try:
         )
 
         # Tombol Simpan
-        if st.button("💾 Simpan Perubahan Tabel", type="primary"):
+        if st.button("💾 Simpan Perubahan", type="primary"):
             changes = st.session_state["barang_editor"]
             
             # Cek Konflik Hapus
