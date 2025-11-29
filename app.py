@@ -2,6 +2,7 @@ import streamlit as st
 
 pages = {
     "Dashboard": [
+        st.Page("proses_bulanan.py", title="Proses Akhir Bulan"),
         st.Page("dashboard_sales.py", title="Prediksi Penjualan"),
         st.Page("dashboard_stock.py", title="Manajemen Stok"),
     ],
