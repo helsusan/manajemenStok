@@ -108,16 +108,17 @@ try:
         # Filter berdasarkan tanggal
         query = """
         SELECT 
-            id,
-            no_faktur AS 'No Faktur',
-            tgl_faktur AS 'Tgl Faktur',
-            nama_pelanggan AS 'Nama Pelanggan',
-            id_barang AS 'ID Barang',
-            kuantitas AS 'Kuantitas',
-            jumlah AS 'Jumlah' 
-        FROM penjualan 
-        WHERE DATE(tgl_faktur) = %s
-        ORDER BY tgl_faktur DESC
+            p.id,
+            p.no_faktur AS 'No Faktur',
+            p.tgl_faktur AS 'Tgl Faktur',
+            p.nama_pelanggan AS 'Nama Pelanggan',
+            b.nama AS 'Nama Barang',
+            p.kuantitas AS 'Kuantitas',
+            p.jumlah AS 'Jumlah' 
+        FROM penjualan p
+        JOIN barang b ON p.id_barang = b.id
+        WHERE DATE(p.tgl_faktur) = %s
+        ORDER BY p.tgl_faktur DESC
         """
         conn = database.get_connection()
         df_penjualan = pd.read_sql(query, conn, params=(selected_date,))
@@ -126,22 +127,23 @@ try:
         # Tampilkan semua data
         results = database.run_query("""
             SELECT 
-                id,
-                no_faktur AS 'No Faktur',
-                tgl_faktur AS 'Tgl Faktur',
-                nama_pelanggan AS 'Nama Pelanggan',
-                id_barang AS 'ID Barang',
-                kuantitas AS 'Kuantitas',
-                jumlah AS 'Jumlah' 
-            FROM penjualan 
-            ORDER BY tgl_faktur DESC
+                p.id,
+                p.no_faktur AS 'No Faktur',
+                p.tgl_faktur AS 'Tgl Faktur',
+                p.nama_pelanggan AS 'Nama Pelanggan',
+                b.nama AS 'Nama Barang',
+                p.kuantitas AS 'Kuantitas',
+                p.jumlah AS 'Jumlah' 
+            FROM penjualan p
+            JOIN barang b ON p.id_barang = b.id
+            ORDER BY p.tgl_faktur DESC
         """)
         df_penjualan = pd.DataFrame(results) if results else pd.DataFrame()
     
     if not df_penjualan.empty:
-        # Formant tanggal
+        # FORMAT TANGGAL → 24 Nov 2025
         df_penjualan['Tgl Faktur'] = pd.to_datetime(df_penjualan['Tgl Faktur']).dt.strftime('%d %b %Y')
-
+        
         # Tambahkan kolom select untuk delete
         df_penjualan.insert(0, 'Hapus', False)
         
@@ -156,9 +158,10 @@ try:
                     default=False
                 ),
                 "id": None,  # Hide ID column
-                "Tgl Faktur": st.column_config.DateColumn("Tgl Faktur", format="DD/MM/YYYY")
+                "Tgl Faktur": st.column_config.TextColumn("Tgl Faktur"),
+                "Nama Barang": st.column_config.TextColumn("Nama Barang")
             },
-            disabled=["No Faktur", "Tgl Faktur", "Nama Pelanggan", "ID Barang", "Kuantitas", "Jumlah"],
+            disabled=["No Faktur", "Tgl Faktur", "Nama Pelanggan", "Nama Barang", "Kuantitas", "Jumlah"],
             hide_index=True,
             key="penjualan_editor"
         )
@@ -205,65 +208,65 @@ except Exception as e:
 
 
 
-st.divider()
+# st.divider()
 
-st.header("📅 Proses Akhir Bulan")
+# st.header("📅 Proses Akhir Bulan")
 
-with st.expander("ℹ️ Tujuan Proses"):
-    st.write("""
-    Proses ini akan melakukan:
-    - Generate prediksi untuk bulan depan
-    - Hitung safety stock & reorder point untuk bulan depan
+# with st.expander("ℹ️ Tujuan Proses"):
+#     st.write("""
+#     Proses ini akan melakukan:
+#     - Generate prediksi untuk bulan depan
+#     - Hitung safety stock & reorder point untuk bulan depan
              
-    ⚠️ **Penting**: Jalankan proses ini SETELAH input semua data penjualan bulan ini!
-    """)
+#     ⚠️ **Penting**: Jalankan proses ini SETELAH input semua data penjualan bulan ini!
+#     """)
     
-# st.markdown("---")
+# # st.markdown("---")
 
-col1, col2 = st.columns(2)
+# col1, col2 = st.columns(2)
 
-with col1:
-    latest_penjualan = database.get_latest_penjualan_date()
-    st.caption(f"📍**Data penjualan terakhir:** {latest_penjualan if latest_penjualan else '-'}")
+# with col1:
+#     latest_penjualan = database.get_latest_penjualan_date()
+#     st.caption(f"📍**Data penjualan terakhir:** {latest_penjualan if latest_penjualan else '-'}")
 
-with col2:
-    next_month = (datetime.now().replace(day=1) + pd.DateOffset(months=1)).strftime('%B %Y')
-    st.caption(f"🔮 **Prediksi untuk bulan**: {next_month}")
+# with col2:
+#     next_month = (datetime.now().replace(day=1) + pd.DateOffset(months=1)).strftime('%B %Y')
+#     st.caption(f"🔮 **Prediksi untuk bulan**: {next_month}")
 
-# st.markdown("---")
+# # st.markdown("---")
 
-if st.button("Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
+# if st.button("Jalankan Proses Akhir Bulan", type="primary", use_container_width=True):
     
-    with st.spinner("Memproses..."):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+#     with st.spinner("Memproses..."):
+#         progress_bar = st.progress(0)
+#         status_text = st.empty()
         
-        status_text.text("1/2: Generate prediksi untuk semua barang...")
-        progress_bar.progress(30)
+#         status_text.text("1/2: Generate prediksi untuk semua barang...")
+#         progress_bar.progress(30)
         
-        results = prediction.process_end_of_month()
+#         results = prediction.process_end_of_month()
         
-        progress_bar.progress(100)
-        status_text.text("Selesai!")
+#         progress_bar.progress(100)
+#         status_text.text("Selesai!")
         
-        st.success("✅ Proses akhir bulan selesai!")
+#         st.success("✅ Proses akhir bulan selesai!")
         
-        col1, col2 = st.columns(2)
+#         col1, col2 = st.columns(2)
         
-        with col1:
-            st.metric("✅ Prediksi Berhasil", len(results['prediksi_success']))
-            st.metric("✅ Rekomendasi Berhasil", len(results['rekomendasi_success']))
+#         with col1:
+#             st.metric("✅ Prediksi Berhasil", len(results['prediksi_success']))
+#             st.metric("✅ Rekomendasi Berhasil", len(results['rekomendasi_success']))
         
-        with col2:
-            st.metric("❌ Prediksi Gagal", len(results['prediksi_failed']))
-            st.metric("❌ Rekomendasi Gagal", len(results['rekomendasi_failed']))
+#         with col2:
+#             st.metric("❌ Prediksi Gagal", len(results['prediksi_failed']))
+#             st.metric("❌ Rekomendasi Gagal", len(results['rekomendasi_failed']))
         
-        if results['prediksi_failed']:
-            with st.expander("❌ Detail Error Prediksi"):
-                for nama, error in results['prediksi_failed']:
-                    st.error(f"**{nama}**: {error}")
+#         if results['prediksi_failed']:
+#             with st.expander("❌ Detail Error Prediksi"):
+#                 for nama, error in results['prediksi_failed']:
+#                     st.error(f"**{nama}**: {error}")
 
-        if results['rekomendasi_failed']:
-            with st.expander("❌ Detail Error Rekomendasi"):
-                for nama, error in results['rekomendasi_failed']:
-                    st.error(f"**{nama}**: {error}")
+#         if results['rekomendasi_failed']:
+#             with st.expander("❌ Detail Error Rekomendasi"):
+#                 for nama, error in results['rekomendasi_failed']:
+#                     st.error(f"**{nama}**: {error}")
