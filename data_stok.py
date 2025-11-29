@@ -181,30 +181,28 @@ if len(all_stok) > 0:
         if len(selected_for_delete) > 0:
             st.warning(f"⚠️ {len(selected_for_delete)} data akan dihapus dari tanggal {filter_date.strftime('%d %b %Y')}")
             
-            col1, col2 = st.columns([1, 5])
-            with col1:
-                if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                    try:
-                        conn = database.get_connection()
-                        cursor = conn.cursor()
-                        
-                        deleted_count = 0
-                        for idx, row in selected_for_delete.iterrows():
-                            # Delete berdasarkan composite key: tanggal + id_barang
-                            delete_query = "DELETE FROM stok WHERE DATE(tanggal) = %s AND id_barang = %s"
-                            cursor.execute(delete_query, (filter_date, int(row['id_barang'])))
-                            deleted_count += 1
-                        
-                        conn.commit()
-                        cursor.close()
-                        conn.close()
-                        
-                        st.success(f"✅ Berhasil menghapus {deleted_count} data stok!")
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"❌ Error: {str(e)}")
-        
+            if st.button("🗑️ Hapus Data Terpilih", type="primary"):
+                try:
+                    conn = database.get_connection()
+                    cursor = conn.cursor()
+                    
+                    deleted_count = 0
+                    for idx, row in selected_for_delete.iterrows():
+                        # Delete berdasarkan composite key: tanggal + id_barang
+                        delete_query = "DELETE FROM stok WHERE DATE(tanggal) = %s AND id_barang = %s"
+                        cursor.execute(delete_query, (filter_date, int(row['id_barang'])))
+                        deleted_count += 1
+                    
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+                    
+                    st.success(f"✅ Berhasil menghapus {deleted_count} data stok!")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+    
         st.caption(f"📊 Total: {len(filtered_stok)} barang pada {filter_date.strftime('%d %b %Y')}")
     else:
         st.info(f"💡 Tidak ada data stok pada {filter_date.strftime('%d %b %Y')}")
