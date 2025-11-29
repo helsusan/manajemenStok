@@ -177,6 +177,15 @@ if btn_check_stock:
                 rop = row['reorder_point']
                 safety = row['safety_stock']
                 saran_stok = row['saran_stok'] if not pd.isna(row['saran_stok']) else 0
+
+                # TAMBAHAN: Cek apakah data stok kosong (BJM dan SBY keduanya None/0)
+                bjm_is_empty = pd.isna(row['gudang_bjm']) or row['gudang_bjm'] == 0
+                sby_is_empty = pd.isna(row['gudang_sby']) or row['gudang_sby'] == 0
+                
+                if bjm_is_empty and sby_is_empty and rop != 0:
+                    return '🔴 REORDER'
+                elif bjm_is_empty:
+                    return '✅ AMAN'
                 
                 if bjm <= rop:
                     if sby >= saran_stok:
