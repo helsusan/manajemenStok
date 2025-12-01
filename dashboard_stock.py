@@ -200,7 +200,9 @@ if btn_check_stock:
                 #     return '✅ AMAN'
                 
                 if bjm <= rop:
-                    if sby >= saran_stok:
+                    if rop == 0:
+                        return '✅ AMAN'
+                    elif sby > saran_stok:
                         return '⚠️ TRANSFER'
                     else:
                         return '🔴 REORDER'
@@ -285,9 +287,9 @@ if btn_check_stock:
                         help="Prediksi penjualan bulan depan"
                     ),
                     "saran_stok": st.column_config.NumberColumn(
-                        "🛒 Saran Pembelian (Harian)",
+                        "🛒 Saran Restock (Harian)",
                         format="%.2f",
-                        help="Saran restok untuk gudang BJM"
+                        help="Saran jumlah restock untuk gudang BJM"
                     )
                 },
                 hide_index=True
