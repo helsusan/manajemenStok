@@ -181,11 +181,23 @@ if btn_check_stock:
                 # TAMBAHAN: Cek apakah data stok kosong (BJM dan SBY keduanya None/0)
                 bjm_is_empty = pd.isna(row['gudang_bjm']) or row['gudang_bjm'] == 0
                 sby_is_empty = pd.isna(row['gudang_sby']) or row['gudang_sby'] == 0
+
+                # if rop > 0:
+                #     if bjm_is_empty and sby_is_empty:
+                #         return '🔴 REORDER'
+                #     elif bjm_is_empty and sby_is_empty == "False":
+                #         return '⚠️ TRANSFER'
+                #     elif bjm < rop and sby_is_empty:
+                #         return '🔴 REORDER'
+                #     elif bjm < rop and sby < rop:
+                #         return '🔴 REORDER'
+                # else:
+                #     return '✅ AMAN'
                 
-                if bjm_is_empty and sby_is_empty and rop != 0:
-                    return '🔴 REORDER'
-                elif bjm_is_empty:
-                    return '✅ AMAN'
+                # if bjm_is_empty and sby_is_empty and rop != 0:
+                #     return '🔴 REORDER'
+                # elif bjm_is_empty:
+                #     return '✅ AMAN'
                 
                 if bjm <= rop:
                     if sby >= saran_stok:
@@ -275,7 +287,7 @@ if btn_check_stock:
                     "saran_stok": st.column_config.NumberColumn(
                         "🛒 Saran Pembelian (Harian)",
                         format="%.2f",
-                        help="Saran pembelian stok untuk gudang BJM"
+                        help="Saran restok untuk gudang BJM"
                     )
                 },
                 hide_index=True
