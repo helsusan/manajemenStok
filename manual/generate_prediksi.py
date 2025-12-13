@@ -30,19 +30,16 @@ import manual_database
 import manual_prediction
 
 # Misal 1 Agustus 2025 -> prediksi Sep, Okt, Nov
-SIMULATED_DATE = datetime(2025, 8, 1)  
+SIMULATED_DATE = datetime(2025, 5, 1)  
 
 # Prediksi 3 bulan ke depan
-MONTHS_AHEAD = 3
+MONTHS_AHEAD = 6
 
-FALLBACK_TO_MEAN = True
+FALLBACK_TO_MEAN = False
 
 def main():
-    print("="*70)
-    print("BACKFILL PREDIKSI - ONE TIME SETUP")
-    print("="*70)
-    print(f"📅 Simulasi tanggal: {SIMULATED_DATE.strftime('%d %B %Y')}")
-    print(f"📊 Akan generate prediksi untuk {MONTHS_AHEAD} bulan ke depan:")
+    print(f"Simulasi tanggal: {SIMULATED_DATE.strftime('%d %B %Y')}")
+    print(f"Generate prediksi untuk {MONTHS_AHEAD} bulan ke depan:")
     print(f"🔄 Fallback ke Mean: {'AKTIF' if FALLBACK_TO_MEAN else 'TIDAK AKTIF'}")
     print()
     
@@ -57,25 +54,25 @@ def main():
     print()
     
     # Konfirmasi dari user
-    confirm = input("❓ Lanjutkan generate prediksi? (y/n): ").lower().strip()
+    confirm = input("Lanjutkan generate prediksi? (y/n): ").lower().strip()
     if confirm != 'y':
-        print("❌ Dibatalkan oleh user")
+        print("Canceled")
         return
     
-    print("\n🚀 Memulai prediksi...\n")
+    print("\nMulai prediksi...\n")
     print("-"*70)
     
     try:
         # Inisialisasi
-        print("📡 Menghubungkan ke database...")
+        print("Menghubungkan ke database...")
         manual_database.get_connection()
         
-        print("🔧 Inisialisasi model prediksi...")
+        print("Inisialisasi model prediksi...")
         
         # Get all barang
         barang_list = manual_database.get_all_nama_barang()
         
-        print(f"📦 Total barang: {len(barang_list)}")
+        print(f"Total barang: {len(barang_list)}")
         print("-"*70)
         print()
         
@@ -93,7 +90,8 @@ def main():
                 
                 result = manual_prediction.generate_prediksi(
                     info_barang=info_barang,
-                    base_date=SIMULATED_DATE
+                    base_date=SIMULATED_DATE,
+                    months_ahead=MONTHS_AHEAD
                 )
                 
                 if result['status'] == 'generated':
@@ -119,7 +117,7 @@ def main():
             print()
         
         print("="*70)
-        print("📊 SUMMARY HASIL BACKFILL")
+        print("📊 SUMMARY HASIL PREDIKSI MANUAL")
         print("="*70)
         print(f"✅ Berhasil: {success_count}/{len(barang_list)} barang")
         print(f"❌ Error: {error_count}/{len(barang_list)} barang")
@@ -136,17 +134,16 @@ def main():
         print()
         
         if success_count > 0:
-            print("✅ BACKFILL SELESAI!")
-            print(f"💾 Data prediksi {(next_month).strftime('%B %Y')} - {(next_month + relativedelta(months=MONTHS_AHEAD-1)).strftime('%B %Y')} berhasil disimpan")
-            print("📊 Sekarang bisa gunakan dashboard normal dengan tanggal real-time")
+            print("✅ PREDIKSI MANUAL SELESAI!")
+            print(f"Data prediksi {(next_month).strftime('%B %Y')} - {(next_month + relativedelta(months=MONTHS_AHEAD-1)).strftime('%B %Y')} berhasil disimpan")
         else:
             print("⚠️ TIDAK ADA DATA YANG BERHASIL DI-GENERATE")
-            print("💡 Cek error message di atas untuk troubleshooting")
-            print("💡 Pastikan:")
-            print("   - Database sudah terkoneksi dengan benar")
-            print("   - Ada data penjualan yang cukup (minimal 12 bulan untuk ARIMA)")
-            print("   - Konfigurasi model di tabel 'barang' sudah benar")
-            print("   - Set FALLBACK_TO_MEAN=True jika data kurang dari 12 bulan")
+            # print("💡 Cek error message di atas untuk troubleshooting")
+            # print("💡 Pastikan:")
+            # print("   - Database sudah terkoneksi dengan benar")
+            # print("   - Ada data penjualan yang cukup (minimal 12 bulan untuk ARIMA)")
+            # print("   - Konfigurasi model di tabel 'barang' sudah benar")
+            # print("   - Set FALLBACK_TO_MEAN=True jika data kurang dari 12 bulan")
         
         print()
         

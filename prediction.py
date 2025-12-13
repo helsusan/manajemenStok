@@ -68,7 +68,8 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     if len(sales) < 12:
         raise ValueError(f"Data tidak cukup untuk prediksi ARIMA. Minimal 12 bulan, tersedia {len(sales)} bulan")
     
-    ori_sales = sales.copy()
+    # --- PENTING: Pastikan urutan data benar ---
+    sales = sales.sort_index()
 
     print("\nPREDIKSI ARIMA - DATA SALES")
     print(f"Total data: {len(sales)} bulan")
@@ -81,7 +82,10 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     # Ini penting agar Index (Tanggal) tidak hilang dan bisa dipanggil sales['kuantitas']
     sales['kuantitas'] = transformed_data
 
-    model = ARIMA(sales['kuantitas'], order=(p,d,q))
+    # Ambil values saja supaya ngga membaca DatetimeIndex
+    train_data = sales['kuantitas'].values
+
+    model = ARIMA(train_data, order=(p,d,q))
     result = model.fit()
 
     # Hitung berapa bulan dari data terakhir ke target pertama

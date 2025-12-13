@@ -8,7 +8,7 @@ def get_connection():
         host="localhost",
         user="root",
         password="",
-        database="manajemen_stok"
+        database="fix_manajemen_stok"
     )
 
 def run_query(query):
