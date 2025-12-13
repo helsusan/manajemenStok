@@ -1,10 +1,10 @@
 """
-Script untuk backfill prediksi September - November 2025
+Script untuk manual prediksi September - November 2025
 Jalankan SEKALI SAJA untuk setup awal data prediksi
 
 CARA PAKAI:
 1. Edit SIMULATED_DATE dan DB_CONFIG sesuai kebutuhan
-2. Jalankan: python backfill_prediksi_september.py
+2. Jalankan: python manual_prediksi_september.py
 3. Script akan generate prediksi dari tanggal simulasi
 4. Setelah selesai, gunakan dashboard normal (dengan tanggal real-time)
 
@@ -26,8 +26,8 @@ from dateutil.relativedelta import relativedelta
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import database
-import backfill_prediction
+import manual_database
+import manual_prediction
 
 # Misal 1 Agustus 2025 -> prediksi Sep, Okt, Nov
 SIMULATED_DATE = datetime(2025, 8, 1)  
@@ -62,18 +62,18 @@ def main():
         print("❌ Dibatalkan oleh user")
         return
     
-    print("\n🚀 Memulai backfill...\n")
+    print("\n🚀 Memulai prediksi...\n")
     print("-"*70)
     
     try:
         # Inisialisasi
         print("📡 Menghubungkan ke database...")
-        database.get_connection()
+        manual_database.get_connection()
         
         print("🔧 Inisialisasi model prediksi...")
         
         # Get all barang
-        barang_list = database.get_all_nama_barang()
+        barang_list = manual_database.get_all_nama_barang()
         
         print(f"📦 Total barang: {len(barang_list)}")
         print("-"*70)
@@ -86,12 +86,12 @@ def main():
         # Loop setiap barang
         for idx, barang in barang_list.iterrows():
             nama = barang['nama']
-            info_barang = database.get_data_barang(nama)
+            info_barang = manual_database.get_data_barang(nama)
             
             try:
                 print(f"[{idx+1}/{len(barang_list)}] {nama}...", end=" ")
                 
-                result = backfill_prediction.generate_prediksi(
+                result = manual_prediction.generate_prediksi(
                     info_barang=info_barang,
                     base_date=SIMULATED_DATE
                 )

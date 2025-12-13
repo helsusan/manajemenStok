@@ -1,3 +1,0 @@
-- Template UI yg lama (semuanya di 1 page yg sama, tanpa sidenav)
-- Rencana mau pakai scheduler buat predictionnya tapi ngga jadi karena mempertimbangkan
-kalau datanya ditambahin, bingung set waktunya

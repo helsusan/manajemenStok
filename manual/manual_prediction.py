@@ -1,12 +1,11 @@
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.arima.model import ARIMA
-from scipy.signal import savgol_filter
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import warnings
 warnings.filterwarnings('ignore')
-import database
+import manual_database
 
 def get_next_3_months(base_date=None):
     if base_date is None:

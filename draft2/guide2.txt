@@ -1,3 +1,0 @@
-- Tampilan UI nya pakai side nav
-- Setiap section terpisah page
-- Prediksinya manual, perlu trigger pakai button
