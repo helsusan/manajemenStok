@@ -3,8 +3,6 @@ import database
 import prediction
 from datetime import datetime
 import plotly.graph_objects as go
-import sys
-import os
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 
@@ -215,6 +213,7 @@ if temp_prediction is not None:
     ))
 
 # Vertical line untuk marking "bulan ini"
+# Belum muncul di streamlitnya
 current_date_ts = pd.to_datetime(current_month).timestamp()
 fig.add_vline(
     x=current_date_ts,

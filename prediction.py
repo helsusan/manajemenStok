@@ -76,10 +76,9 @@ def prediksi_arima(id_barang, p, d, q, target_dates):
     print("=" * 60)
 
     transformer = PowerTransformer(method='yeo-johnson', standardize=True)
-    # 1. Transform hanya kolom kuantitas (gunakan [[ ]] agar jadi 2D array)
+    # Transform hanya kolom kuantitas (gunakan [[ ]] agar jadi 2D array)
     transformed_data = transformer.fit_transform(sales[['kuantitas']])
-    # 2. Masukkan kembali hasil transform ke DataFrame 'sales'
-    # Ini penting agar Index (Tanggal) tidak hilang dan bisa dipanggil sales['kuantitas']
+    # Masukkan hasil transform ke DataFrame 'sales'
     sales['kuantitas'] = transformed_data
 
     # Ambil values saja supaya ngga membaca DatetimeIndex
@@ -158,87 +157,7 @@ def prediksi_mean(id_barang, target_dates):
 
     return result
 
-def generate_prediksi_range(info_barang, start_month, end_month):
-    id_barang = info_barang[0]
-    nama_barang = info_barang[1]
-    model_prediksi = info_barang[2]
-    p = int(info_barang[3]) if pd.notna(info_barang[3]) else None
-    d = int(info_barang[4]) if pd.notna(info_barang[4]) else None
-    q = int(info_barang[5]) if pd.notna(info_barang[5]) else None
-
-    target_dates = get_months_in_range(start_month, end_month)
-    
-    try:
-        if model_prediksi == 'ARIMA':
-            if p is None or d is None or q is None:
-                raise ValueError("Order ARIMA (p, d, q) harus disediakan")
-            
-            result = prediksi_arima(id_barang, p, d, q, target_dates)
-            used_model = 'ARIMA'
-
-        elif model_prediksi == 'Mean':
-            result = prediksi_mean(id_barang, target_dates)
-            used_model = 'MEAN'
-
-        else:
-            raise ValueError("Model prediksi tidak dikenali")
-
-        return {
-            'status': 'generated',
-            'message': f"Prediksi berhasil di-generate untuk {len(result)} bulan",
-            'data': result,
-            'info': f"{len(result)} bulan prediksi berhasil disimpan"
-        }
-
-    except Exception as e:
-        return {
-            'status': 'error',
-            'message': f"Error: {str(e)}",
-            'data': None,
-            'info': None
-        }
-
-def generate_all_prediksi():
-    base_date = datetime.now()
-
-    all_barang = database.get_all_data_barang()
-    
-    next_month = (base_date.replace(day=1) + pd.DateOffset(months=1)).date()
-    target_dates = [next_month]
-
-    for _, row in all_barang.iterrows():
-        id_barang = row['id']
-        nama_barang = row['nama']
-        model = row['model_prediksi']
-        p, d, q = row['p'], row['d'], row['q']
-
-        print(f"🔹 Barang: {nama_barang} (Model: {model})")
-
-        df_penjualan = database.get_all_data_penjualan(id_barang)
-
-        try:
-            database.cek_data_penjualan_lengkap(df_penjualan, base_date)
-        except ValueError as e:
-            print(f"❌ ERROR: {nama_barang} -> {str(e)}")
-            return None 
-
-        if model == 'ARIMA' and pd.notna(p) and pd.notna(d) and pd.notna(q):
-            result = prediksi_arima(id_barang, int(p), int(d), int(q), target_dates)
-        elif model == 'Mean':
-            result = prediksi_mean(id_barang, target_dates)
-
-        for _, row_pred in result.iterrows():
-            tanggal = row_pred['tanggal']
-            qty = row_pred['kuantitas']
-            database.insert_hasil_prediksi(id_barang, tanggal, qty)
-            print(f"   ✅ Disimpan prediksi {tanggal}: {qty:.2f}")
-
-        print("   ------------------------------------------")
-
-    print("\n🎯 Semua prediksi berhasil diproses!")
-
 def generate_prediksi_temp(info_barang, start_month, end_month):
-
     id_barang = info_barang[0]
     nama_barang = info_barang[1]
     model_prediksi = info_barang[2]
@@ -274,9 +193,6 @@ def generate_prediksi_temp(info_barang, start_month, end_month):
         # ==== MODEL TIDAK DITEMUKAN ====
         else:
             raise ValueError("Model prediksi tidak dikenali (harus 'ARIMA' atau 'Mean')")
-
-        # PENTING: TIDAK DISIMPAN KE DATABASE
-        # Hanya return data untuk visualisasi
         
         return {
             'status': 'success',
@@ -423,7 +339,7 @@ def process_end_of_month():
 
             avg_daily_usage = hasil_prediksi / days_in_next_month
             
-            reorder_point = (avg_daily_usage * avg_lead_time) + safety_stock
+            reorder_point = (avg_daily_usage * max_lead_time) + safety_stock
 
             latest_stok_date = database.get_latest_stok_date_by_name(nama)
             if latest_stok_date:
@@ -432,9 +348,22 @@ def process_end_of_month():
                 stok_aktual = stok_row['gudang_bjm'].values[0] if len(stok_row) > 0 else 0
             else:
                 stok_aktual = 0
-            
-            saran_stok = reorder_point + avg_daily_usage - stok_aktual
-            saran_stok = max(0, round(saran_stok, 2))
+
+            today = datetime.now()
+            last_day_of_month = calendar.monthrange(today.year, today.month)[1]
+            sisa_hari = last_day_of_month - today.day + 1
+
+            if sisa_hari < 1: 
+                sisa_hari = 1
+
+            kebutuhan = avg_daily_usage * sisa_hari
+            max_level = kebutuhan + safety_stock
+
+            if stok_aktual > max_level:
+                saran_stok = 0
+            else:
+                saran_stok = max_level - stok_aktual
+                saran_stok = max(0, round(saran_stok, 2))
 
             # ===== SIMPAN REKOMENDASI STOK KE DATABASE =====
             database.insert_rekomendasi_stok(

@@ -63,25 +63,18 @@ def get_next_n_months(base_date=None, months_ahead=1):
 def prediksi_arima(id_barang, p, d, q, base_date, months_ahead):
     first_sales_date = manual_database.get_first_sales_date(id_barang)
 
-    # Jika tidak ada data penjualan sama sekali (None/NaT), lempar error agar fallback ke Mean
     if first_sales_date is None or pd.isna(first_sales_date):
         raise ValueError("Data penjualan kosong (Barang Baru)")
 
-    # Hitung tanggal akhir data training (akhir bulan dari base_date)
-    # Misal base_date = 1 Sept, maka end_date = 30 Sept
     end_date = base_date.replace(day=1) + relativedelta(months=1) - relativedelta(days=1)
 
-    # Ambil data HANYA sampai end_date
     sales = manual_database.get_data_penjualan_with_date_range(
         id_barang=id_barang,
         start_date=first_sales_date.strftime('%Y-%m-%d'),
         end_date=end_date.strftime('%Y-%m-%d')
     )
 
-    # sales = manual_database.get_all_data_penjualan(id_barang)
     sales.index.name = None
-    
-    # FIX: Pastikan tidak ada NaN di sales
     sales['kuantitas'] = sales['kuantitas'].fillna(0)
 
     all_months = pd.date_range(
@@ -94,51 +87,112 @@ def prediksi_arima(id_barang, p, d, q, base_date, months_ahead):
 
     ori_sales = sales.copy()
 
-    print("ORI SALES")
+    # =========================
+    # DEBUG 1: DATA ASLI
+    # =========================
+    print("\n========== DEBUG: DATA ASLI ==========")
+    print(f"Barang ID : {id_barang}")
+    print(f"Total bulan: {len(ori_sales)}")
+    print(f"Periode   : {ori_sales.index.min()} s/d {ori_sales.index.max()}")
+    print("Head:")
     print(ori_sales)
-    print("=" * 60)
+    print("Tail:")
+    print(ori_sales)
+    print("=====================================")
 
-    print("DEBUG DATA COMPARISON:")
-    print("Start Date:", sales.index.min())
-    print("End Date:", sales.index.max())
-    print("Mean Kuantitas (Original):", ori_sales['kuantitas'].mean())
-    print("Sample 5 data terakhir:", ori_sales['kuantitas'].tail(5).values)
-    print("=" * 60)
+    print("\n========== DEBUG: STATISTIK ORIGINAL ==========")
+    print(f"Min   : {ori_sales['kuantitas'].min()}")
+    print(f"Max   : {ori_sales['kuantitas'].max()}")
+    print(f"Mean  : {ori_sales['kuantitas'].mean()}")
+    print(f"Std   : {ori_sales['kuantitas'].std()}")
+    print("==============================================")
 
+    # =========================
+    # TRANSFORMASI YEO-JOHNSON
+    # =========================
     from sklearn.preprocessing import PowerTransformer
     transformer = PowerTransformer(method='yeo-johnson', standardize=True)
     transformed_data = transformer.fit_transform(sales[['kuantitas']])
     sales['kuantitas'] = transformed_data
 
-    # print("ORI SALES")
-    # print(ori_sales)
-    # print("=" * 60)
-    
+    # =========================
+    # DEBUG 2: DATA TRANSFORMASI
+    # =========================
+    print("\n========== DEBUG: DATA SETELAH YEO-JOHNSON ==========")
+    debug_transform = pd.DataFrame({
+        "Original": ori_sales['kuantitas'].values,
+        "YeoJohnson": sales['kuantitas'].values
+    }, index=sales.index)
+
+    print(debug_transform)
+    print("...")
+    print(debug_transform)
+    print("===================================================")
+
+    print("\n========== DEBUG: STATISTIK TRANSFORM ==========")
+    print(f"Min   : {sales['kuantitas'].min()}")
+    print(f"Max   : {sales['kuantitas'].max()}")
+    print(f"Mean  : {sales['kuantitas'].mean()}")
+    print(f"Std   : {sales['kuantitas'].std()}")
+    print("==============================================")
+
+    # =========================
+    # TRAIN & MODEL
+    # =========================
     future_dates = get_next_n_months(base_date, months_ahead)
 
     train_data = sales['kuantitas'].values
-    model = ARIMA(train_data, order=(p,d,q))
+    model = ARIMA(train_data, order=(p, d, q))
     result = model.fit()
 
+    print("\n========== DEBUG: MODEL ==========")
+    print(f"ARIMA Order     : ({p},{d},{q})")
+    print(f"Jumlah train    : {len(train_data)}")
+    print(f"Forecast months : {len(future_dates)}")
+    print("=================================")
+
+    # =========================
+    # FORECAST (TRANSFORMED)
+    # =========================
     forecast = result.forecast(steps=len(future_dates))
     forecast_values = forecast.values if hasattr(forecast, 'values') else forecast
+
+    print("\n========== DEBUG: FORECAST (TRANSFORM SCALE) ==========")
+    print(forecast_values[:5])
+    print("...")
+    print(forecast_values[-5:])
+    print("======================================================")
+
+    forecast_values = np.clip(forecast_values, -6, 6)
     forecast_values = forecast_values.reshape(-1, 1)
-    forecast_values = transformer.inverse_transform(forecast_values)
-    forecast_values = np.maximum(forecast_values, 0)
 
-    # 5. Flatten kembali jadi 1D array agar mudah di-slice
-    forecast_values = forecast_values.flatten()
+    # =========================
+    # INVERSE TRANSFORM
+    # =========================
+    forecast_inverse = transformer.inverse_transform(forecast_values)
+    forecast_inverse = np.maximum(forecast_inverse, 0)
+    forecast_inverse = forecast_inverse.flatten()
 
+    print("\n========== DEBUG: FORECAST (INVERSE / ORIGINAL SCALE) ==========")
+    print(forecast_inverse[:5])
+    print("...")
+    print(forecast_inverse[-5:])
+    print("==============================================================")
+
+    # =========================
+    # FINAL RESULT
+    # =========================
     result = pd.DataFrame({
         'tanggal': future_dates,
-        'kuantitas': forecast_values
+        'kuantitas': forecast_inverse
     })
 
-    print("HASIL PREDIKSI ARIMA")
+    print("\n========== HASIL AKHIR PREDIKSI ARIMA ==========")
     print(result)
-    print("=" * 60)
+    print("================================================")
 
     return result
+
 
 def prediksi_mean(id_barang, base_date, months_ahead):
     combined_data = manual_database.get_last_12_data_penjualan(id_barang)

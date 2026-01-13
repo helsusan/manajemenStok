@@ -117,6 +117,7 @@ if btn_check_stock:
                     for idx, row in rekomendasi.iterrows():
                         id_barang = row['id_barang']
                         reorder_point = row['reorder_point']
+                        safety_stock = row['safety_stock']
                         hasil_prediksi = row['hasil_prediksi']
                         
                         # Ambil stok BJM dari data stok terbaru
@@ -134,14 +135,27 @@ if btn_check_stock:
                         days_in_next_month = calendar.monthrange(next_month.year, next_month.month)[1]
 
                         avg_daily_usage = hasil_prediksi / days_in_next_month
-                        saran_stok_harian = reorder_point + avg_daily_usage - stok_bjm
-                        saran_stok_harian = max(0, round(saran_stok_harian, 2))
+                        today = datetime.now()
+                        last_day_of_month = calendar.monthrange(today.year, today.month)[1]
+                        sisa_hari = last_day_of_month - today.day + 1
+
+                        if sisa_hari < 1: 
+                            sisa_hari = 1
+
+                        kebutuhan = avg_daily_usage * sisa_hari
+                        max_level = kebutuhan + safety_stock
+
+                        if stok_bjm > max_level:
+                            saran_stok = 0
+                        else:
+                            saran_stok = max_level - stok_bjm
+                            saran_stok = max(0, round(saran_stok, 2))
                         
                         # Update ke database
                         database.update_saran_stok(
                             id_barang=id_barang,
                             stok_bjm=stok_bjm,
-                            saran_stok=saran_stok_harian,
+                            saran_stok=saran_stok,
                             tgl_update=latest_stok_date
                         )
                         
@@ -182,23 +196,6 @@ if btn_check_stock:
                 bjm_is_empty = pd.isna(row['gudang_bjm']) or row['gudang_bjm'] == 0
                 sby_is_empty = pd.isna(row['gudang_sby']) or row['gudang_sby'] == 0
 
-                # if rop > 0:
-                #     if bjm_is_empty and sby_is_empty:
-                #         return '🔴 REORDER'
-                #     elif bjm_is_empty and sby_is_empty == "False":
-                #         return '⚠️ TRANSFER'
-                #     elif bjm < rop and sby_is_empty:
-                #         return '🔴 REORDER'
-                #     elif bjm < rop and sby < rop:
-                #         return '🔴 REORDER'
-                # else:
-                #     return '✅ AMAN'
-                
-                # if bjm_is_empty and sby_is_empty and rop != 0:
-                #     return '🔴 REORDER'
-                # elif bjm_is_empty:
-                #     return '✅ AMAN'
-                
                 if bjm <= rop:
                     if rop == 0:
                         return '✅ AMAN'
@@ -287,7 +284,7 @@ if btn_check_stock:
                         help="Prediksi penjualan bulan depan"
                     ),
                     "saran_stok": st.column_config.NumberColumn(
-                        "🛒 Saran Restock (Harian)",
+                        "🛒 Saran Restock",
                         format="%.2f",
                         help="Saran jumlah restock untuk gudang BJM"
                     )

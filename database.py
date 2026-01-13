@@ -8,9 +8,9 @@ def get_connection():
         host="localhost",
         user="root",
         password="",
-        database="manajemen_stok"
+        database="fix_manajemen_stok"
     )
-
+    
 def run_query(query):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -21,16 +21,6 @@ def run_query(query):
     return result
 
 def normalize_to_date(date_value):
-    """
-    Normalize berbagai format tanggal jadi datetime.date
-    
-    Handles:
-    - datetime.date → return as is
-    - datetime.datetime → return .date()
-    - pd.Timestamp → return .date()
-    - string 'YYYY-MM-DD' → parse then .date()
-    - None → return None
-    """
     from datetime import datetime, date
     import pandas as pd
     
@@ -132,10 +122,6 @@ def delete_barang(id_barang):
         conn.close()
 
 def check_related_data(id_barang):
-    """
-    Cek apakah barang memiliki data terkait di tabel lain.
-    Returns: Dict berisi nama tabel dan jumlah data, misal {'Penjualan': 10, 'Stok': 5}
-    """
     conn = get_connection()
     cursor = conn.cursor()
     related = {}
@@ -313,8 +299,6 @@ def get_all_data_penjualan(id_barang):
             global_max = global_max.replace(day=1)
             
             # Gunakan tanggal yang paling baru (antara barang ini vs global)
-            # Jadi kalau barang ini stop Juli, tapi toko ada data sampai Oktober,
-            # kita paksa grafik lanjut sampai Oktober.
             last_date = max(last_date_product, global_max)
         else:
             last_date = last_date_product
@@ -353,16 +337,6 @@ def get_data_penjualan_with_start_date(id_barang, start_date):
     return df
 
 def get_last_12_data_penjualan(id_barang):
-    """
-    Ambil 12 bulan data penjualan terakhir untuk training model.
-    
-    LOGIC PENTING:
-    - Kalau bulan HISTORIS kosong (dalam range data real) → ISI DENGAN 0 (memang ga ada sales)
-    - Kalau bulan FUTURE kosong (di luar range data real) → BOLEH fill dengan prediksi
-    
-    Returns:
-        DataFrame dengan 12 bulan data (termasuk prediksi untuk future months)
-    """
     # Tentukan range tanggal (12 bulan ke belakang dari bulan sekarang)
     end_date = datetime.now().replace(day=1).date()
     start_date = end_date - timedelta(days=365)
@@ -461,10 +435,6 @@ def get_last_12_data_penjualan(id_barang):
     return combined
 
 def cek_data_penjualan_lengkap(df, base_date=None):
-    """
-    Mengecek apakah data penjualan memiliki bulan terakhir yang sesuai.
-    Misal: kalau base_date = 2025-12-01, maka data terakhir minimal harus ada sampai 2025-11-01.
-    """
     if base_date is None:
         base_date = datetime.now().date()
         
@@ -500,16 +470,6 @@ def get_latest_penjualan_date():
     return None
 
 def check_data_penjualan_bulan_ini():
-    """
-    Cek apakah data penjualan bulan ini sudah ada
-    Returns:
-        dict: {
-            'exists': bool,
-            'last_date': date,
-            'current_month': date,
-            'message': str
-        }
-    """
     from datetime import datetime
     
     latest_date = get_latest_penjualan_date()
@@ -541,9 +501,6 @@ def check_data_penjualan_bulan_ini():
     }
 
 def get_daily_sales_6_months(id_barang):
-    """
-    Ambil data penjualan harian 6 bulan terakhir
-    """
     conn = get_connection()
     query = """
     SELECT 
@@ -773,11 +730,11 @@ def get_latest_stok_date_by_name(nama_barang):
 def get_stok_by_date(tanggal):
     # NORMALISASI: Convert ke date lalu ke string
     tanggal = normalize_to_date(tanggal)
-    if tanggal:
-        tanggal_str = tanggal.strftime('%Y-%m-%d')
-    else:
-        from datetime import datetime
-        tanggal_str = datetime.now().strftime('%Y-%m-%d')
+    # if tanggal:
+    #     tanggal_str = tanggal.strftime('%Y-%m-%d')
+    # else:
+    #     from datetime import datetime
+    #     tanggal_str = datetime.now().strftime('%Y-%m-%d')
     
     conn = get_connection()
     query = """
@@ -858,20 +815,7 @@ def check_data_stok_hari_ini():
 # DATA REKOMENDASI STOK
 # ================================================
 
-# ================================================
-# TAMBAHKAN FUNCTION INI KE database.py
-# ================================================
-
 def update_saran_stok(id_barang, stok_bjm, saran_stok, tgl_update):
-    """
-    Update saran_stok, stok_aktual, dan tgl_update di tbl_rekomendasi_stok
-    
-    Args:
-        id_barang: ID barang yang akan di-update
-        stok_bjm: Stok di gudang BJM (untuk stok_aktual)
-        saran_stok: Nilai saran stok yang sudah dihitung (harian)
-        tgl_update: Tanggal update (dari tanggal stok terakhir)
-    """
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -981,22 +925,6 @@ def get_barang_with_lead_time():
     return df
 
 def analyze_gudang_distribution():
-    """
-    Analisis distribusi stok antara Gudang SBY vs BJM.
-    
-    Deteksi kasus:
-    1. Stok total cukup, tapi masih banyak di SBY (perlu transfer)
-    2. Stok BJM sudah mencapai reorder point (urgent)
-    3. Stok BJM aman, tapi SBY menumpuk (warning)
-    
-    Returns:
-        dict: {
-            'need_transfer': list,      # Barang yang perlu transfer SBY -> BJM
-            'bjm_critical': list,        # Stok BJM kritis (perlu reorder/transfer urgent)
-            'sby_stockpile': list,       # Stok SBY menumpuk (perlu dimonitor)
-            'balanced': list             # Distribusi stok sudah baik
-        }
-    """
     from datetime import datetime
     
     results = {
@@ -1113,13 +1041,6 @@ def analyze_gudang_distribution():
 
 
 def get_transfer_priority_list():
-    """
-    Generate daftar prioritas transfer dari SBY ke BJM.
-    Diurutkan berdasarkan urgency.
-    
-    Returns:
-        DataFrame dengan kolom: nama, bjm, sby, transfer_needed, urgency, reason
-    """
     analysis = analyze_gudang_distribution()
     
     # Ambil data yang perlu transfer
@@ -1141,13 +1062,6 @@ def get_transfer_priority_list():
 
 
 def get_rekomendasi_stok_with_gudang():
-    """
-    Ambil data rekomendasi stok LENGKAP dengan info gudang.
-    Termasuk breakdown BJM vs SBY.
-    
-    Returns:
-        DataFrame dengan tambahan kolom: gudang_bjm, gudang_sby, distribution_status
-    """
     # Ambil rekomendasi biasa
     rekomendasi = get_rekomendasi_stok()
     
@@ -1205,12 +1119,7 @@ def get_rekomendasi_stok_with_gudang():
 
 import pandas as pd
 
-def clean_excel_apostrophe(df):
-    """
-    Membersihkan apostrof (') di awal string pada seluruh cell
-    dan juga pada nama kolom DataFrame.
-    """
-    
+def clean_excel_apostrophe(df):   
     def clean_value(value):
         # Handle NaN/None
         if pd.isna(value):

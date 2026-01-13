@@ -29,11 +29,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import manual_database
 import manual_prediction
 
-# Misal 1 Agustus 2025 -> prediksi Sep, Okt, Nov
 SIMULATED_DATE = datetime(2025, 5, 1)  
 
 # Prediksi 3 bulan ke depan
-MONTHS_AHEAD = 6
+MONTHS_AHEAD = 7
 
 FALLBACK_TO_MEAN = False
 
@@ -84,37 +83,39 @@ def main():
         for idx, barang in barang_list.iterrows():
             nama = barang['nama']
             info_barang = manual_database.get_data_barang(nama)
+
+            if nama == "AQUA 1500ML":
             
-            try:
-                print(f"[{idx+1}/{len(barang_list)}] {nama}...", end=" ")
-                
-                result = manual_prediction.generate_prediksi(
-                    info_barang=info_barang,
-                    base_date=SIMULATED_DATE,
-                    months_ahead=MONTHS_AHEAD
-                )
-                
-                if result['status'] == 'generated':
-                    print("✅ SUCCESS")
-                    success_count += 1
+                try:
+                    print(f"[{idx+1}/{len(barang_list)}] {nama}...", end=" ")
                     
-                    # Tampilkan detail prediksi
-                    if result['data'] is not None:
-                        for _, row in result['data'].iterrows():
-                            print(f"      → {row['tanggal'].strftime('%b %Y')}: {row['kuantitas']:.2f}")
-                else:
-                    print(f"❌ {result['status'].upper()}")
-                    print(f"      ✗ {result['message']}")
+                    result = manual_prediction.generate_prediksi(
+                        info_barang=info_barang,
+                        base_date=SIMULATED_DATE,
+                        months_ahead=MONTHS_AHEAD
+                    )
+                    
+                    if result['status'] == 'generated':
+                        print("✅ SUCCESS")
+                        success_count += 1
+                        
+                        # Tampilkan detail prediksi
+                        if result['data'] is not None:
+                            for _, row in result['data'].iterrows():
+                                print(f"      → {row['tanggal'].strftime('%b %Y')}: {row['kuantitas']:.2f}")
+                    else:
+                        print(f"❌ {result['status'].upper()}")
+                        print(f"      ✗ {result['message']}")
+                        error_count += 1
+                        error_details.append((nama, result['message']))
+                        
+                except Exception as e:
+                    print(f"❌ ERROR")
+                    print(f"      ✗ {str(e)}")
                     error_count += 1
-                    error_details.append((nama, result['message']))
-                    
-            except Exception as e:
-                print(f"❌ ERROR")
-                print(f"      ✗ {str(e)}")
-                error_count += 1
-                error_details.append((nama, str(e)))
-            
-            print()
+                    error_details.append((nama, str(e)))
+                
+                print()
         
         print("="*70)
         print("📊 SUMMARY HASIL PREDIKSI MANUAL")
