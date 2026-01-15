@@ -20,7 +20,7 @@ st.set_page_config(
 
 st.header("Data Barang")
 
-tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Data Barang"])
+tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Barang"])
 
 # ================================================
 # TAB 1 : INPUT MANUAL
@@ -69,7 +69,7 @@ with tab2:
         try:
             df_raw = pd.read_excel(uploaded_file, header=None)
 
-            EXPECTED_COLS = ["Nama"]
+            EXPECTED_COLS = ["nama"]
             header_row_index = None
 
             for i, row in df_raw.iterrows():
@@ -121,154 +121,103 @@ with tab2:
 # ================================================
 
 with tab3:
-    st.subheader("📋 Daftar Transaksi Penjualan")
+    st.subheader("📋 Daftar Barang")
     
-    # Filter tanggal
-    col1, col2, col3, col4 = st.columns([1.2, 1.5, 1.5, 3])
-    
-    with col1:
-        # Simulasi data tanggal (nanti ganti dengan query database)
-        all_dates_query = "SELECT DISTINCT DATE(tgl_faktur) as tanggal FROM penjualan ORDER BY tanggal DESC"
-        all_dates_result = database.run_query(all_dates_query)
-        
-        # Sementara data dummy
-        available_dates = [datetime.now().date()]
-        
-        # Date input dengan calendar
-        selected_date = st.date_input(
-            "Filter Tanggal",
-            value=None,
-            help="Kosongkan untuk tampilkan semua data"
-        )
-    
-    with col2:
-        pelanggan_list = database.run_query("""
-            SELECT DISTINCT nama_pelanggan
-            FROM penjualan
-            ORDER BY nama_pelanggan
-        """)
-        pelanggan_options = ["Semua"] + [p[0] for p in pelanggan_list]
-
-        selected_pelanggan = st.selectbox(
-            "👤 Nama Pelanggan",
-            pelanggan_options
-        )
-
-    with col3:
-        barang_list = database.run_query("""
-            SELECT DISTINCT b.nama
-            FROM barang b
-            JOIN penjualan p ON p.id_barang = b.id
-            ORDER BY b.nama
-        """)
-        barang_options = ["Semua"] + [b[0] for b in barang_list]
-
-        selected_barang = st.selectbox(
-            "📦 Nama Barang",
-            barang_options
-        )
-    
-    # Query data transaksi
     try:
-        query = """
-            SELECT 
-                p.id,
-                p.no_faktur AS 'No Faktur',
-                p.tgl_faktur AS 'Tgl Faktur',
-                p.nama_pelanggan AS 'Nama Pelanggan',
-                b.nama AS 'Nama Barang',
-                p.kuantitas AS 'Kuantitas',
-                p.jumlah AS 'Jumlah'
-            FROM penjualan p
-            JOIN barang b ON p.id_barang = b.id
-            WHERE 1=1
-        """
+        df_barang = new_database.get_all_data_barang()
 
-        params = []
+        if not df_barang.empty:
+            df_barang = df_barang.sort_values("nama").reset_index(drop=True)
 
-        if selected_date:
-            query += " AND DATE(p.tgl_faktur) = %s"
-            params.append(selected_date)
+            column_config = {
+                "id": None,
+                "nama": st.column_config.TextColumn(
+                    "Nama Barang", required=True
+                ),
+                "model_prediksi": st.column_config.SelectboxColumn(
+                    "Model", options=["ARIMA", "Mean"], required=True
+                ),
+                "p": st.column_config.NumberColumn("p"),
+                "d": st.column_config.NumberColumn("d"),
+                "q": st.column_config.NumberColumn("q"),
+            }
 
-        if selected_pelanggan != "Semua":
-            query += " AND p.nama_pelanggan = %s"
-            params.append(selected_pelanggan)
-
-        if selected_barang != "Semua":
-            query += " AND b.nama = %s"
-            params.append(selected_barang)
-
-        query += " ORDER BY p.tgl_faktur DESC"
-
-        conn = database.get_connection()
-        df_penjualan = pd.read_sql(query, conn, params=params)
-        conn.close()
-            
-        if not df_penjualan.empty:
-            # FORMAT TANGGAL → 13 Jan 2025
-            df_penjualan['Tgl Faktur'] = pd.to_datetime(df_penjualan['Tgl Faktur']).dt.strftime('%d %b %Y')
-            
-            # Format harga ke Rupiah
-            df_penjualan['Jumlah'] = df_penjualan['Jumlah'].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
-            
-            # Tambahkan kolom select untuk delete
-            df_penjualan.insert(0, 'Hapus', False)
-            
-            # Tampilkan dengan data_editor
             edited_df = st.data_editor(
-                df_penjualan,
+                df_barang,
+                column_config=column_config,
+                disabled=["id"],
+                num_rows="dynamic",
                 use_container_width=True,
-                column_config={
-                    "Hapus": st.column_config.CheckboxColumn(
-                        "Pilih",
-                        help="Centang untuk menghapus data",
-                        default=False
-                    ),
-                    "id": None,  # Hide ID column
-                    "Tgl Faktur": st.column_config.TextColumn("Tgl Faktur"),
-                    "Nama Customer": st.column_config.TextColumn("Nama Customer"),
-                    "Nama Barang": st.column_config.TextColumn("Nama Barang"),
-                    "Kuantitas": st.column_config.TextColumn("Kuantitas"),
-                    "Jumlah": st.column_config.TextColumn("Jumlah")
-                },
-                disabled=["No Faktur", "Tgl Faktur", "Nama Pelanggan", "Nama Barang", "Kuantitas", "Jumlah"],
-                hide_index=True,
-                key="penjualan_editor"
+                key="barang_editor",
+                hide_index=True
             )
-            
-            # Tombol delete
-            selected_for_delete = edited_df[edited_df['Hapus'] == True]
-            
-            if len(selected_for_delete) > 0:
-                st.warning(f"⚠️ {len(selected_for_delete)} data akan dihapus")
-                
-                col1, col2 = st.columns([1, 5])
-                with col1:
-                    if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                        try:
-                            conn = database.get_connection()
-                            cursor = conn.cursor()
-                            
-                            deleted_count = 0
-                            for idx, row in selected_for_delete.iterrows():
-                                delete_query = "DELETE FROM transaksi WHERE id = %s"
-                                cursor.execute(delete_query, (int(row['id']),))
-                                deleted_count += 1
-                            
-                            conn.commit()
-                            cursor.close()
-                            conn.close()
-                            
-                            st.success(f"✅ Berhasil menghapus {deleted_count} data!")
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-            
-            # Info jumlah data
-            st.caption(f"📊 Total: {len(df_penjualan)} data")
-        else:
-            st.warning("Tidak ada data transaksi" + (f" pada tanggal {selected_date}" if selected_date else ""))
+
+            if st.button("💾 Simpan Perubahan", type="primary"):
+                changes = st.session_state["barang_editor"]
+
+                conflicts = []
+                if changes["deleted_rows"]:
+                    for index in changes["deleted_rows"]:
+                        row = df_barang.iloc[index]
+                        related = new_database.check_related_data(row["id"])
+                        if related:
+                            conflicts.append({
+                                "nama": row["nama"],
+                                "related": related
+                            })
+
+                if conflicts:
+                    st.session_state["delete_conflicts"] = conflicts
+                    st.session_state["pending_changes"] = changes
+                    st.rerun()
+                else:
+                    try:
+                        with st.spinner("Menyimpan perubahan..."):
+
+                            # 1️⃣ HAPUS DATA
+                            if changes["deleted_rows"]:
+                                for index in changes["deleted_rows"]:
+                                    id_to_delete = int(df_barang.iloc[index]['id'])
+                                    new_database.delete_barang(id_to_delete)
+
+                            # 2️⃣ EDIT DATA
+                            if changes["edited_rows"]:
+                                for index, new_values in changes["edited_rows"].items():
+                                    row = df_barang.iloc[index].to_dict()
+                                    row.update(new_values)
+
+                                    new_database.update_barang(
+                                        int(row['id']),
+                                        row['nama'],
+                                        row['model_prediksi'],
+                                        row['p'],
+                                        row['d'],
+                                        row['q']
+                                    )
+
+                            # 3️⃣ TAMBAH DATA
+                            if changes["added_rows"]:
+                                for new_row in changes["added_rows"]:
+                                    nama = new_row.get("nama", "").strip()
+                                    if nama:
+                                        new_database.insert_barang_full(
+                                            nama=nama,
+                                            model_prediksi=new_row.get("model_prediksi", "Mean"),
+                                            p=new_row.get("p"),
+                                            d=new_row.get("d"),
+                                            q=new_row.get("q")
+                                        )
+
+                        st.success("✅ Perubahan berhasil disimpan!")
+
+                        # Bersihkan state
+                        st.session_state.pop("delete_conflicts", None)
+                        st.session_state.pop("pending_changes", None)
+
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Gagal menyimpan: {str(e)}")
             
     except Exception as e:
         st.error(f"Error: {str(e)}")

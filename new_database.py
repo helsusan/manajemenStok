@@ -82,7 +82,7 @@ def check_barang_available(nama_barang):
     return result is not None
 
 # Input data barang ke database
-def insert_barang(nama_barang, model_prediksi="Mean"):
+def insert_barang(nama_barang, model_prediksi="Mean", p=None, d=None, q=None):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -109,10 +109,10 @@ def insert_barang(nama_barang, model_prediksi="Mean"):
             # Insert
             cursor.execute(
                 """
-                INSERT INTO barang (nama, model_prediksi)
-                VALUES (%s, %s)
+                INSERT INTO barang (nama, model_prediksi, p, d, q)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (nama_barang, "Mean")
+                (nama_barang, model_prediksi, p, d, q)
             )
             success_count += 1
 
@@ -125,6 +125,64 @@ def insert_barang(nama_barang, model_prediksi="Mean"):
     conn.close()
 
     return success_count, error_count, errors
+
+# Update isi tabel barang
+def update_barang(id_barang, nama, model_prediksi, p, d, q):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        UPDATE barang
+        SET nama = %s,
+            model_prediksi = %s,
+            p = %s,
+            d = %s,
+            q = %s
+        WHERE id = %s
+    """
+    cursor.execute(query, (nama, model_prediksi, p, d, q, int(id_barang)))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# Hapus barang
+def delete_barang(id_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM barang WHERE id = %s",
+        (int(id_barang),)
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# Cek apakah barang tersebut ada di tabel lain
+def check_related_data(id_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    related = {}
+
+    checks = {
+        "Customer Pricelist": "SELECT COUNT(*) FROM customer_pricelist WHERE id_barang = %s",
+        "Supplier Pricelist": "SELECT COUNT(*) FROM supplier_pricelist WHERE id_barang = %s"
+    }
+
+    for name, query in checks.items():
+        cursor.execute(query, (int(id_barang),))
+        count = cursor.fetchone()[0]
+        if count > 0:
+            related[name] = count
+
+    cursor.close()
+    conn.close()
+
+    return related
+
 
 
 
