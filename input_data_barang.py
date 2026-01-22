@@ -5,7 +5,7 @@ import new_database
 
 st.set_page_config(
     page_title="Data Barang",
-    page_icon="",
+    page_icon="📦",
     layout="wide"
 )
 
@@ -276,7 +276,7 @@ with tab3:
 
                 if conflicts:
                     st.session_state["delete_conflicts"] = conflicts
-                    # st.session_state["pending_changes"] = changes
+                    st.session_state["pending_changes"] = changes
                     changes = st.session_state.get("pending_changes", st.session_state["barang_editor"])
                     st.rerun()
                 else:
@@ -307,9 +307,20 @@ with tab3:
                             # 3️⃣ TAMBAH DATA
                             if changes["added_rows"]:
                                 for new_row in changes["added_rows"]:
-                                    nama = new_row.get("nama", "").strip()
+                                    nama = new_row.get("nama", "")
+
+                                    if not nama:
+                                        continue  # skip baris kosong
+
+                                    # Normalisasi nama
+                                    nama = nama.strip().upper()
+
+                                    # Validasi duplikasi
+                                    if new_database.check_barang_available(nama):
+                                        raise Exception(f"Barang '{nama}' sudah ada di database")
+
                                     if nama and not new_database.check_barang_available(nama):
-                                        new_database.insert_barang_full(
+                                        new_database.insert_barang(
                                             nama=nama,
                                             model_prediksi=new_row.get("model_prediksi", "Mean"),
                                             p=new_row.get("p"),
