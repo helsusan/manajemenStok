@@ -359,11 +359,21 @@ def delete_customer(id_cust):
 # DATA CUSTOMER PRICELIST
 # ================================================
 
-def check_pricelist_exists(id_customer, id_barang):
-    """
-    Check if pricelist combination already exists
-    Returns True if exists, False otherwise
-    """
+# Ambil semua data customer pricelist tapi bisa pilih kolomnya
+def get_all_data_customer_pricelist(columns="*"):
+    conn = get_connection()
+    
+    if isinstance(columns, list):
+        columns = ", ".join(columns)
+
+    query = f"SELECT {columns} FROM customer_pricelist"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    
+    return df
+
+# Cek apakah kombinasi customer & pricelist sudah ada
+def check_cust_pricelist_exists(id_customer, id_barang):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -379,12 +389,8 @@ def check_pricelist_exists(id_customer, id_barang):
     
     return result is not None
 
+# Insert / update customer pricelist
 def upsert_customer_pricelist(id_customer, id_barang, harga):
-    """
-    Insert or Update customer pricelist
-    If combination exists, update the price and timestamp
-    If not, insert new record
-    """
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -424,8 +430,8 @@ def upsert_customer_pricelist(id_customer, id_barang, harga):
         cursor.close()
         conn.close()
 
+# Update customer pricelist
 def update_customer_pricelist(id_pricelist, harga):
-    """Update specific pricelist by ID"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -440,11 +446,8 @@ def update_customer_pricelist(id_pricelist, harga):
     cursor.close()
     conn.close()
 
+# Ambil semua data customer beserta pricelist nya
 def get_customer_with_pricelist():
-    """
-    Get all customers with their pricelist
-    Returns DataFrame with columns: id_customer, customer, id_pricelist, barang, harga, updated_at
-    """
     conn = get_connection()
     
     query = """
@@ -466,3 +469,293 @@ def get_customer_with_pricelist():
     conn.close()
     
     return df
+
+# Hapus customer pricelist
+def delete_customer_pricelist(id_pricelist):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM customer_pricelist WHERE id = %s",
+        (int(id_pricelist),)
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA SUPPLIER
+# ================================================
+
+# Normalisasi nama supplier pakai Tile Case
+def normalize_supplier_name(nama):
+    if not nama or pd.isna(nama):
+        return ""
+   
+    return str(nama).strip().title()
+
+# Ambil semua data supplier tapi bisa pilih kolomnya
+def get_all_data_supplier(columns="*"):
+    conn = get_connection()
+   
+    if isinstance(columns, list):
+        columns = ", ".join(columns)
+
+    query = f"SELECT {columns} FROM supplier"
+    df = pd.read_sql(query, conn)
+    conn.close()
+   
+    return df
+
+# Cek apakah supplier sudah ada di database
+def check_supplier_available(nama_supp):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    nama_supp = normalize_supplier_name(nama_supp)
+
+    query = "SELECT id FROM supplier WHERE nama = %s"
+    cursor.execute(query, (nama_supp,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    return result is not None
+
+# Ambil id supplier berdasarkan nama
+def get_supplier_id(nama_supp):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    nama_supp = normalize_supplier_name(nama_supp)
+
+    query = "SELECT id FROM supplier WHERE nama = %s"
+    cursor.execute(query, (nama_supp,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    return result[0] if result else None
+
+# Input data supplier ke database
+# Bisa dipanggil manual 1x, atau dipanggil di dalam loop Excel berkali-kali
+def insert_supplier(nama):
+    conn = get_connection()
+    cursor = conn.cursor()
+   
+    try:
+        # Validasi Nama
+        if not nama or str(nama).strip() == "":
+            raise ValueError("Nama supplier tidak boleh kosong")
+       
+        nama = normalize_supplier_name(nama)
+
+        # Cek Duplikasi
+        cursor.execute("SELECT id FROM supplier WHERE nama = %s", (nama,))
+        if cursor.fetchone():
+            raise ValueError(f"Customer '{nama}' sudah ada")
+
+        # Insert Query
+        query = """
+            INSERT INTO supplier (nama)
+            VALUES (%s)
+        """
+
+        cursor.execute(query, (nama, ))
+        conn.commit()
+       
+        return True, f"Supplier '{nama}' berhasil disimpan"
+       
+    except Exception as e:
+        return False, str(e)
+       
+    finally:
+        cursor.close()
+        conn.close()
+
+# Update isi tabel supplier
+def update_supplier(id_supp, nama):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    nama = normalize_supplier_name(nama)
+
+    query = """
+        UPDATE supplier
+        SET nama = %s
+        WHERE id = %s
+    """
+    cursor.execute(query, (nama, int(id_supp)))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# Hapus supplier
+def delete_supplier(id_supp):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Delete pricelist first (foreign key constraint)
+        cursor.execute("DELETE FROM supplier_pricelist WHERE id_supplier = %s", (int(id_supp),))
+       
+        # Then delete supplier
+        cursor.execute("DELETE FROM supplier WHERE id = %s", (int(id_supp),))
+       
+        conn.commit()
+       
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA SUPPLIER PRICELIST
+# ================================================
+
+# Ambil semua data supplier pricelist tapi bisa pilih kolomnya
+def get_all_data_supplier_pricelist(columns="*"):
+    conn = get_connection()
+   
+    if isinstance(columns, list):
+        columns = ", ".join(columns)
+
+    query = f"SELECT {columns} FROM supplier_pricelist"
+    df = pd.read_sql(query, conn)
+    conn.close()
+   
+    return df
+
+# Cek apakah kombinasi supplier & pricelist sudah ada
+def check_supp_pricelist_exists(id_supplier, id_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+   
+    query = """
+        SELECT id FROM supplier_pricelist
+        WHERE id_supplier = %s AND id_barang = %s
+    """
+    cursor.execute(query, (int(id_supplier), int(id_barang)))
+    result = cursor.fetchone()
+   
+    cursor.close()
+    conn.close()
+   
+    return result is not None
+
+# Insert / update supplier pricelist
+def upsert_supplier_pricelist(id_supplier, id_barang, harga):
+    conn = get_connection()
+    cursor = conn.cursor()
+   
+    try:
+        # Check if exists
+        check_query = """
+            SELECT id FROM supplier_pricelist
+            WHERE id_supplier = %s AND id_barang = %s
+        """
+        cursor.execute(check_query, (int(id_supplier), int(id_barang)))
+        existing = cursor.fetchone()
+       
+        if existing:
+            # Update existing
+            update_query = """
+                UPDATE supplier_pricelist
+                SET harga = %s, updated_at = NOW()
+                WHERE id = %s
+            """
+            cursor.execute(update_query, (int(harga), existing[0]))
+        else:
+            # Insert new
+            insert_query = """
+                INSERT INTO supplier_pricelist (id_supplier, id_barang, harga, updated_at)
+                VALUES (%s, %s, %s, NOW())
+            """
+            cursor.execute(insert_query, (int(id_supplier), int(id_barang), int(harga)))
+       
+        conn.commit()
+        return True
+       
+    except Exception as e:
+        print(f"Error upsert pricelist: {str(e)}")
+        return False
+       
+    finally:
+        cursor.close()
+        conn.close()
+
+# Update supplier pricelist
+def update_supplier_pricelist(id_pricelist, harga):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        UPDATE supplier_pricelist
+        SET harga = %s, updated_at = NOW()
+        WHERE id = %s
+    """
+    cursor.execute(query, (int(harga), int(id_pricelist)))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+# Ambil semua data supplier beserta pricelist nya
+def get_supplier_with_pricelist():
+    conn = get_connection()
+   
+    query = """
+        SELECT
+            c.id as id_supplier,
+            c.nama as supplier,
+            cp.id as id_pricelist,
+            b.nama as barang,
+            cp.harga,
+            cp.updated_at
+        FROM supplier c
+        LEFT JOIN supplier_pricelist cp ON c.id = cp.id_supplier
+        LEFT JOIN barang b ON cp.id_barang = b.id
+        WHERE cp.id IS NOT NULL
+        ORDER BY c.nama, b.nama
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+   
+    return df
+
+# Hapus supplier pricelist
+def delete_supplier_pricelist(id_pricelist):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM supplier_pricelist WHERE id = %s",
+        (int(id_pricelist),)
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
