@@ -9,15 +9,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Header
-# st.markdown("""
-#     <div style='background-color: #28a745; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
-#         <h1 style='color: white; text-align: center; margin: 0;'>
-#             📦 KELOLA DATA CUSTOMER
-#         </h1>
-#     </div>
-# """, unsafe_allow_html=True)
-
 st.header("Data Customer")
 
 # ===============================
@@ -40,12 +31,18 @@ if "edit_success" not in st.session_state:
 if "temp_pricelist" not in st.session_state:
     st.session_state.temp_pricelist = []
 
-tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Customer & Pricelist"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📝 Input Manual",
+    "📤 Upload Excel", 
+    "👥 Daftar Customer",
+    "💰 Daftar Pricelist"
+])
 
 current_tab = (
     "tab1" if tab1 else
     "tab2" if tab2 else
-    "tab3"
+    "tab3" if tab3 else
+    "tab4"
 )
 
 if st.session_state.active_tab != current_tab:
@@ -64,7 +61,7 @@ with tab1:
 
     mode = st.radio(
         "Pilih Mode Input:",
-        ["🆕 Customer Baru", "📝 Tambah Pricelist ke Customer"],
+        ["👥 Customer Baru", "💰 Tambah Pricelist ke Customer"],
         horizontal=True,
         key="input_mode"
     )
@@ -72,7 +69,7 @@ with tab1:
     col1, col2 = st.columns([2, 3])
     
     with col1:
-        if mode == "🆕 Customer Baru":
+        if mode == "👥 Customer Baru":
             nama_customer_baru = st.text_input(
                 "Nama Customer Baru", 
                 placeholder="Contoh: Toko Sumber Rejeki",
@@ -137,11 +134,25 @@ with tab1:
                         if exists:
                             st.warning(f"⚠️ Barang '{selected_barang}' sudah ada di pricelist")
                         else:
-                            st.session_state.temp_pricelist.append({
-                                "barang": selected_barang,
-                                "harga": harga_input
-                            })
-                            st.rerun()
+                            # PERBAIKAN 1: Cek apakah sudah ada di database (untuk mode tambah ke existing customer)
+                            if mode == "📝 Tambah Pricelist ke Customer" and selected_customer_id:
+                                id_barang = new_database.get_barang_id(selected_barang)
+                                if new_database.check_cust_pricelist_exists(selected_customer_id, id_barang):
+                                    st.error(f"❌ Pricelist untuk barang '{selected_barang}' sudah ada di database!")
+                                    st.info("💡 Silakan edit harga di tab **Daftar Pricelist**")
+                                else:
+                                    st.session_state.temp_pricelist.append({
+                                        "barang": selected_barang,
+                                        "harga": harga_input
+                                    })
+                                    st.rerun()
+                            else:
+                                # Mode customer baru, langsung tambahkan
+                                st.session_state.temp_pricelist.append({
+                                    "barang": selected_barang,
+                                    "harga": harga_input
+                                })
+                                st.rerun()
                     else:
                         st.error("❌ Harga harus lebih dari 0")
         
@@ -218,7 +229,7 @@ with tab1:
                         id_barang = new_database.get_barang_id(item["barang"])
                         
                         # Cek apakah pricelist sudah ada
-                        existing = new_database.check_pricelist_exists(selected_customer_id, id_barang)
+                        existing = new_database.check_cust_pricelist_exists(selected_customer_id, id_barang)
                         
                         if new_database.upsert_customer_pricelist(selected_customer_id, id_barang, item["harga"]):
                             if existing:
@@ -417,11 +428,133 @@ with tab2:
         st.session_state.upload_success = None
 
 # ================================================
-# TAB 3 : TABEL CUSTOMER & PRICELIST
+# TAB 3 : DAFTAR CUSTOMER
 # ================================================
 
 with tab3:
-    st.subheader("📋 Daftar Customer & Pricelist")
+    st.subheader("👥 Daftar Customer")
+
+    with st.expander("ℹ️ Info edit & hapus customer"):
+        st.write("""
+        - Double klik pada sel untuk mengedit nama customer.
+        - Pilih baris dan tekan logo sampah pada bagian atas tabel atau tombol delete di keyboard untuk menghapus.
+        
+        ⚠️ Menghapus customer akan menghapus seluruh pricelist customer tersebut.
+        """)
+    
+    # Filter
+    data_customer = new_database.get_all_data_customer(columns="nama")
+    customer_options = ["Semua"] + data_customer["nama"].tolist()
+    
+    search_customer = st.selectbox(
+        "🔍 Customer",
+        options=customer_options,
+        index=0,
+        key="filter_customer"
+    )
+
+    try:
+        # Ambil data customer
+        df_customers = new_database.get_all_data_customer()
+
+        if df_customers.empty:
+            st.info("Belum ada data customer")
+            st.stop()
+
+        # Apply filter
+        if search_customer != "Semua":
+            df_customers = df_customers[
+                df_customers["nama"].str.contains(search_customer, case=False, na=False)
+            ]
+
+        if df_customers.empty:
+            st.warning("⚠️ Tidak ada customer sesuai filter")
+            st.stop()
+
+        # Download button
+        # st.download_button(
+        #     label="⬇️ Download Data Customer",
+        #     data=df_customers.to_csv(index=False),
+        #     file_name="customer.csv",
+        #     mime="text/csv",
+        #     use_container_width=True
+        # )
+
+        st.info(f"Total: {len(df_customers)} customer")
+        
+        column_config = {
+            "id": None,  # Hide ID column
+            "nama": st.column_config.TextColumn(
+                "Nama Customer",
+                required=True,
+                width="large"
+            )
+        }
+
+        edited_df = st.data_editor(
+            df_customers,
+            column_config=column_config,
+            disabled=["id"],
+            num_rows="dynamic",  # Allow deletion
+            use_container_width=True,
+            key="customer_editor",
+            hide_index=True
+        )
+
+        # Button untuk save changes
+        if st.button("💾 Simpan Perubahan", type="primary", key="btn_save_customer"):
+            changes = st.session_state["customer_editor"]
+            
+            try:
+                with st.spinner("Menyimpan perubahan..."):
+                    
+                    # 1️⃣ HAPUS DATA
+                    if changes["deleted_rows"]:
+                        for index in changes["deleted_rows"]:
+                            id_to_delete = int(df_customers.iloc[index]['id'])
+                            new_database.delete_customer(id_to_delete)
+                    
+                    # 2️⃣ EDIT DATA
+                    if changes["edited_rows"]:
+                        for index, new_values in changes["edited_rows"].items():
+                            id_customer = int(df_customers.iloc[index]["id"])
+                            new_nama = new_values.get("nama")
+                            
+                            if new_nama:
+                                new_database.update_customer(id_customer, new_nama)
+                    
+                    # 3️⃣ TAMBAH DATA (jika ada)
+                    if changes["added_rows"]:
+                        for new_row in changes["added_rows"]:
+                            nama = new_row.get("nama", "").strip()
+                            if nama and not new_database.check_customer_available(nama):
+                                new_database.insert_customer(nama)
+                
+                st.session_state.edit_success = True
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Gagal menyimpan: {str(e)}")
+
+        if st.session_state.edit_success:
+            st.success("✅ Perubahan berhasil disimpan!")
+            st.session_state.edit_success = False
+
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+
+# ================================================
+# TAB 4 : DAFTAR PRICELIST
+# ================================================
+
+with tab4:
+    st.subheader("💰 Daftar Pricelist")
+    
+    with st.expander("ℹ️ Info edit & hapus pricelist"):
+        st.write("""
+        - Double klik pada sel harga untuk mengedit.
+        - Pilih baris dan tekan logo sampah pada bagian atas tabel atau tombol delete di keyboard untuk menghapus.
+        """)
     
     # Filter
     col_filter1, col_filter2 = st.columns(2)
@@ -431,10 +564,10 @@ with tab3:
         customer_options = ["Semua"] + data_customer["nama"].tolist()
         
         search_customer = st.selectbox(
-            "🔍 Nama Customer",
+            "🔍 Customer",
             options=customer_options,
             index=0,
-            help="Pilih customer yang telah terdaftar"
+            key="filter_customer_pricelist"
         )
     
     with col_filter2:
@@ -442,100 +575,106 @@ with tab3:
         barang_options = ["Semua"] + data_barang["nama"].tolist()
 
         search_barang = st.selectbox(
-            "🔍 Jenis Barang",
+            "🔍 Barang",
             options=barang_options,
             index=0,
-            help="Pilih jenis barang yang telah terdaftar"
+            key="filter_barang_pricelist"
         )
     
     try:
-        # Ambil data customer & pricelist
-        df_customer_pricelist = new_database.get_customer_with_pricelist()
-        
-        if not df_customer_pricelist.empty:
-            # Apply filter
-            if search_customer:
-                df_customer_pricelist = df_customer_pricelist[
-                    df_customer_pricelist["customer"].str.contains(search_customer, case=False, na=False)
-                ]
-            
-            if search_barang:
-                df_customer_pricelist = df_customer_pricelist[
-                    df_customer_pricelist["barang"].str.contains(search_barang, case=False, na=False)
-                ]
-            
-            if df_customer_pricelist.empty:
-                st.warning("⚠️ Tidak ada data yang sesuai dengan filter")
-            else:
-                st.info(f"Menampilkan {len(df_customer_pricelist)} pricelist dari {df_customer_pricelist['customer'].nunique()} customer")
-                
-                # Group by customer
-                for customer_name in df_customer_pricelist["customer"].unique():
-                    with st.expander(f"👤 **{customer_name}**", expanded=False):
-                        df_cust = df_customer_pricelist[df_customer_pricelist["customer"] == customer_name].copy()
-                        
-                        # Prepare for editing
-                        df_edit = df_cust[["id_pricelist", "barang", "harga", "updated_at"]].copy()
-                        
-                        column_config = {
-                            "id_pricelist": None,
-                            "barang": st.column_config.TextColumn("Nama Barang", disabled=True),
-                            "harga": st.column_config.NumberColumn("Harga", format="Rp %d"),
-                            "updated_at": st.column_config.DatetimeColumn("Terakhir Update", format="DD/MM/YYYY HH:mm")
-                        }
-                        
-                        edited_df = st.data_editor(
-                            df_edit,
-                            column_config=column_config,
-                            disabled=["barang", "updated_at"],
-                            num_rows="fixed",
-                            use_container_width=True,
-                            key=f"pricelist_editor_{customer_name}",
-                            hide_index=True
-                        )
-                        
-                        col_save, col_delete = st.columns([3, 1])
-                        
-                        with col_save:
-                            if st.button(f"💾 Simpan Perubahan", key=f"save_{customer_name}", type="primary", use_container_width=True):
-                                try:
-                                    changes = st.session_state[f"pricelist_editor_{customer_name}"]
-                                    
-                                    if changes["edited_rows"]:
-                                        for index, new_values in changes["edited_rows"].items():
-                                            id_pricelist = int(df_edit.iloc[index]["id_pricelist"])
-                                            new_harga = new_values.get("harga")
-                                            
-                                            if new_harga:
-                                                new_database.update_customer_pricelist(id_pricelist, int(new_harga))
-                                        
-                                        st.success(f"✅ Pricelist {customer_name} berhasil diupdate!")
-                                        st.rerun()
-                                    else:
-                                        st.info("Tidak ada perubahan")
-                                        
-                                except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
-                        
-                        with col_delete:
-                            if st.button(f"🗑️ Hapus Customer", key=f"delete_{customer_name}", use_container_width=True):
-                                try:
-                                    id_customer = df_cust.iloc[0]["id_customer"]
-                                    new_database.delete_customer(int(id_customer))
-                                    st.success(f"✅ Customer {customer_name} berhasil dihapus!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Error: {str(e)}")
-        else:
-            st.info("Belum ada data customer & pricelist")
-    
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+        # Ambil data pricelist
+        df = new_database.get_customer_with_pricelist()
 
-# Footer
-# st.markdown("---")
-# st.markdown("""
-#     <div style='text-align: center; color: #666; padding: 10px;'>
-#         <small>📦 Sistem Kelola Data Barang | Developed with Streamlit</small>
-#     </div>
-# """, unsafe_allow_html=True)
+        if df.empty:
+            st.info("Belum ada data pricelist")
+            st.stop()
+
+        # Apply filter
+        if search_customer != "Semua":
+            df = df[df["customer"] == search_customer]
+
+        if search_barang != "Semua":
+            df = df[df["barang"] == search_barang]
+
+        if df.empty:
+            st.warning("⚠️ Tidak ada data sesuai filter")
+            st.stop()
+
+        st.info(
+            f"Menampilkan {len(df)} pricelist dari "
+            f"{df['customer'].nunique()} customer"
+        )
+
+        # Prepare data untuk editing
+        df_edit = df[["id_pricelist", "customer", "barang", "harga", "updated_at"]].copy()
+
+        column_config = {
+            "id_pricelist": None,  # Hide ID
+            "customer": st.column_config.TextColumn(
+                "Customer",
+                disabled=True,
+                width="medium"
+            ),
+            "barang": st.column_config.TextColumn(
+                "Barang",
+                disabled=True,
+                width="medium"
+            ),
+            "harga": st.column_config.NumberColumn(
+                "Harga",
+                required=True,
+                format="Rp %d",
+                width="medium"
+            ),
+            "updated_at": st.column_config.DatetimeColumn(
+                "Update Terakhir",
+                disabled=True,
+                format="DD/MM/YYYY",
+                width="medium"
+            )
+        }
+
+        edited_df = st.data_editor(
+            df_edit,
+            column_config=column_config,
+            disabled=["id_pricelist", "customer", "barang", "updated_at"],
+            num_rows="dynamic",  # Allow deletion
+            use_container_width=True,
+            key="pricelist_editor",
+            hide_index=True
+        )
+
+        # Button untuk save changes
+        if st.button("💾 Simpan Perubahan", type="primary", key="btn_save_pricelist"):
+            changes = st.session_state["pricelist_editor"]
+            
+            try:
+                with st.spinner("Menyimpan perubahan..."):
+                    
+                    # 1️⃣ HAPUS DATA
+                    if changes["deleted_rows"]:
+                        for index in changes["deleted_rows"]:
+                            id_to_delete = int(df_edit.iloc[index]['id_pricelist'])
+                            new_database.delete_customer_pricelist(id_to_delete)
+                    
+                    # 2️⃣ EDIT DATA
+                    if changes["edited_rows"]:
+                        for index, new_values in changes["edited_rows"].items():
+                            id_pricelist = int(df_edit.iloc[index]["id_pricelist"])
+                            new_harga = new_values.get("harga")
+                            
+                            if new_harga is not None:
+                                new_database.update_customer_pricelist(id_pricelist, int(new_harga))
+                
+                st.session_state.edit_success = True
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Gagal menyimpan: {str(e)}")
+
+        if st.session_state.edit_success:
+            st.success("✅ Perubahan berhasil disimpan!")
+            st.session_state.edit_success = False
+
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
