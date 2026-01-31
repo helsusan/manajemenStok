@@ -484,6 +484,27 @@ def delete_customer_pricelist(id_pricelist):
     cursor.close()
     conn.close()
 
+def get_harga_customer(nama_cust, jenis_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT cp.harga
+        FROM customer c
+        JOIN customer_pricelist cp ON c.id = cp.id_customer
+        JOIN barang b ON cp.id_barang = b.id
+        WHERE c.nama = %s AND b.nama = %s
+        LIMIT 1
+    """
+
+    cursor.execute(query, (nama_cust, jenis_barang))
+    result = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    return result[0] if result else None
+
 
 
 
@@ -758,4 +779,205 @@ def delete_supplier_pricelist(id_pricelist):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA PENJUALAN
+# ================================================
+
+# Insert data penjualan
+def insert_penjualan(df):
+    conn = get_connection()
+    cursor = conn.cursor()
+    success_count = 0
+    errors = []
+
+    try:
+        conn.start_transaction()
+
+        penjualan_cache = {}
+        
+        for index, row in df.iterrows():
+            # ======================
+            # VALIDASI BARANG
+            # ======================
+            nama_barang = row.get('Keterangan Barang')
+            if pd.isna(nama_barang):
+                raise Exception(f"Baris {index + 2}: Nama barang kosong")
+
+            id_barang = get_barang_id(nama_barang)
+            if not id_barang:
+                raise Exception(f"Baris {index + 2}: Barang '{nama_barang}' tidak ditemukan")
+            id_barang = id_barang[0]
+
+            # ======================
+            # DATA HEADER
+            # ======================
+            no_nota = row.get('No. Faktur')
+            tanggal = row.get('Tgl Faktur')
+            nama_pelanggan = row.get('Nama Pelanggan')
+
+            if pd.isna(no_nota) or pd.isna(tanggal):
+                raise Exception(f"Baris {index + 2}: No nota atau tanggal kosong")
+
+            id_customer = None
+            if not pd.isna(nama_pelanggan):
+                id_customer = get_customer_id(nama_pelanggan)
+                if not id_customer:
+                    raise Exception(f"Baris {index + 2}: Customer '{nama_pelanggan}' tidak ditemukan")
+
+            # ======================
+            # INSERT PENJUALAN (HEADER)
+            # ======================
+            if no_nota not in penjualan_cache:
+                query_penjualan = """
+                INSERT INTO penjualan (no_nota, tanggal, id_customer, total, top, metode_bayar)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(
+                    query_penjualan,
+                    (
+                        str(no_nota),
+                        tanggal,
+                        id_customer,
+                        0,          # total diupdate belakangan
+                        None,       # TOP
+                        None        # metode_bayar
+                    )
+                )
+                id_penjualan = cursor.lastrowid
+                penjualan_cache[no_nota] = {
+                    "id": id_penjualan,
+                    "total": 0
+                }
+            else:
+                id_penjualan = penjualan_cache[no_nota]["id"]
+
+            # ======================
+            # DETAIL
+            # ======================
+            kuantitas = row.get('Kuantitas')
+            harga_satuan = row.get('Harga Satuan') or row.get('Jumlah')
+
+            if pd.isna(kuantitas):
+                raise Exception(f"Baris {index + 2}: Kuantitas kosong")
+
+            kuantitas = int(float(kuantitas))
+            harga_satuan = float(harga_satuan) if not pd.isna(harga_satuan) else 0
+            subtotal = kuantitas * harga_satuan
+
+            query_detail = """
+            INSERT INTO penjualan_detail
+            (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
+            VALUES (%s, %s, %s, %s, %s)
+            """
+            cursor.execute(
+                query_detail,
+                (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
+            )
+
+            penjualan_cache[no_nota]["total"] += subtotal
+            success_count += 1
+
+        # ======================
+        # UPDATE TOTAL PENJUALAN
+        # ======================
+        for data in penjualan_cache.values():
+            cursor.execute(
+                "UPDATE penjualan SET total = %s WHERE id = %s",
+                (data["total"], data["id"])
+            )
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return success_count, 0, []
+
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        errors.append(str(e))
+        return 0, df.shape[0], errors
+
+# Ambil daftar tanggal transaksi
+def get_penjualan_dates():
+    conn = get_connection()
+    query = """
+        SELECT DISTINCT DATE(tanggal) AS tanggal
+        FROM penjualan
+        ORDER BY tanggal DESC
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df['tanggal'].tolist()
+
+# Ambil data penjualan
+def get_penjualan_data(tanggal=None, customer=None, barang=None):
+    conn = get_connection()
+
+    query = """
+        SELECT
+            p.id,
+            p.no_nota,
+            p.tanggal,
+            c.nama AS nama_customer,
+            b.nama AS nama_barang,
+            pd.kuantitas,
+            pd.subtotal
+        FROM penjualan p
+        JOIN penjualan_detail pd ON p.id = pd.id_penjualan
+        JOIN barang b ON pd.id_barang = b.id
+        LEFT JOIN customer c ON p.id_customer = c.id
+        WHERE 1=1
+    """
+
+    params = []
+
+    if tanggal:
+        query += " AND DATE(p.tanggal) = %s"
+        params.append(tanggal)
+
+    if customer and customer != "Semua":
+        query += " AND c.nama = %s"
+        params.append(customer)
+
+    if barang and barang != "Semua":
+        query += " AND b.nama = %s"
+        params.append(barang)
+
+    query += " ORDER BY p.tanggal DESC"
+
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+# Hapus penjualan
+def delete_penjualan(id_penjualan):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "DELETE FROM penjualan_detail WHERE id_penjualan = %s",
+            (int(id_penjualan),)
+        )
+        cursor.execute(
+            "DELETE FROM penjualan WHERE id = %s",
+            (int(id_penjualan),)
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
 
