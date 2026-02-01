@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import database
+import new_database
 
-# Konfigurasi halaman
 st.set_page_config(
     page_title="Data Penjualan",
     page_icon="",
@@ -21,7 +20,7 @@ st.set_page_config(
 
 st.header("Data Penjualan")
 
-tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Data Penjualan"])
+tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Penjualan"])
 
 # ================================================
 # TAB 1 : INPUT MANUAL
@@ -35,14 +34,6 @@ with tab1:
         st.session_state.jumlah = 0
     if 'harga_satuan' not in st.session_state:
         st.session_state.harga_satuan = 0
-
-    # Data dummy untuk dropdown (nanti diganti dengan query database)
-    data_customer = {
-        "": {"nama": "Pilih Customer", "harga": []},
-        "CUST001": {"nama": "PT. Maju Jaya", "harga": [50000, 75000, 100000]},
-        "CUST002": {"nama": "CV. Berkah Sejahtera", "harga": [60000, 80000, 120000]},
-        "CUST003": {"nama": "UD. Sumber Rezeki", "harga": [45000, 70000, 95000]}
-    }
     
     col1, col2 = st.columns(2)
     
@@ -52,86 +43,101 @@ with tab1:
         tanggal = st.date_input(
             "Tanggal",
             value=datetime.now(),
-            help="Pilih tanggal transaksi"
+            help="Pilih tanggal transaksi",
+            format="DD/MM/YYYY"
         )
         
-        customer_id = st.selectbox(
+        data_customer = new_database.get_all_data_customer(columns="nama")
+        nama_customer = st.selectbox(
             "Nama Customer",
-            options=list(data_customer.keys()),
-            format_func=lambda x: data_customer[x]["nama"],
-            help="Pilih customer dari database"
+            options=data_customer["nama"].tolist(),
+            help="Pilih customer yang telah terdaftar"
         )
         
-        # Jenis Barang
+        data_barang = new_database.get_all_data_barang(columns="nama")
         jenis_barang = st.selectbox(
-            "Jenis Barang:",
-            options=list(database.get_all_nama_barang()),
-            format_func=lambda x: data_barang[x],
-            help="Pilih jenis barang dari database"
+            "Jenis Barang",
+            options=data_barang["nama"].tolist(),
+            help="Pilih jenis barang yang telah terdaftar"
         )
-    
+
     with col2:
-        # Jumlah
-        jumlah = st.number_input(
-            "Jumlah:",
+        kuantitas = st.number_input(
+            "Kuantitas:",
             min_value=0,
             step=1,
             format="%d",
-            help="Masukkan jumlah barang",
-            key="input_jumlah"
+            key="input_kuantitas"
         )
         
-        # Harga Satuan - dropdown dari data customer
-        harga_options = data_customer[customer_id]["harga"] if customer_id else [0]
-        harga_satuan = st.selectbox(
-            "Harga Satuan:",
-            options=harga_options,
-            format_func=lambda x: f"Rp {x:,.0f}".replace(",", "."),
-            help="Pilih harga satuan berdasarkan customer",
-            disabled=(customer_id == "")
+        harga_satuan = new_database.get_harga_customer(nama_customer, jenis_barang)
+        st.text_input(
+            "Harga Satuan",
+            value=f"Rp {harga_satuan:,.0f}".replace(",", "."),
+            disabled=True
         )
         
-        # Harga Total - otomatis calculate
-        harga_total = jumlah * harga_satuan
-        st.number_input(
-            "Harga Total:",
-            value=harga_total,
-            disabled=True,
-            format="%d",
-            help="Harga total dihitung otomatis (Jumlah × Harga Satuan)"
-        )
-        
-        # Tampilkan dalam format Rupiah
+        total = kuantitas * harga_satuan        
         st.markdown(f"""
             <div style='background-color: #e8f4f8; padding: 10px; border-radius: 5px; border-left: 4px solid #0066cc;'>
                 <p style='margin: 0; font-size: 14px; color: #666;'>Total yang harus dibayar:</p>
                 <p style='margin: 0; font-size: 24px; font-weight: bold; color: #0066cc;'>
-                    Rp {harga_total:,.0f}
+                    Rp {total:,.0f}
                 </p>
             </div>
         """.replace(",", "."), unsafe_allow_html=True)
-        
-        # Term of Payment
+
         top = st.selectbox(
             "Term of Payment:",
             options=["", "Cash", "Tempo 7 Hari", "Tempo 14 Hari", "Tempo 30 Hari", "Tempo 45 Hari"],
-            help="Pilih metode pembayaran"
+            help="Pilih terms of payment"
         )
-    
-    st.markdown("---")
     
     # Tombol Aksi
     col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1, 1, 3])
     
     with col_btn1:
-        if st.button("💾 Simpan", type="primary", use_container_width=True):
-            # Validasi input
-            if customer_id == "" or jenis_barang == "" or top == "":
-                st.error("⚠️ Mohon lengkapi semua data yang diperlukan!")
-            elif jumlah <= 0:
-                st.error("⚠️ Jumlah harus lebih dari 0!")
+        if st.button("💾 Simpan", type="primary", use_container_width=True, key="btn_input_manual"):
+            # ======================
+            # VALIDASI SEDERHANA
+            # ======================
+            if not no_faktur:
+                st.error("No Faktur wajib diisi")
+                st.stop()
+
+            if kuantitas <= 0:
+                st.error("Kuantitas harus lebih dari 0")
+                st.stop()
+
+            # ======================
+            # BENTUK DATAFRAME SESUAI INSERT_PENJUALAN
+            # ======================
+            df_input = pd.DataFrame([{
+                "No. Faktur": no_faktur,
+                "Tgl Faktur": tanggal,
+                "Nama Pelanggan": nama_customer,
+                "Keterangan Barang": jenis_barang,
+                "Kuantitas": kuantitas,
+                "Harga Satuan": float(harga_satuan),
+                "Jumlah": float(total)
+            }])
+
+            success, failed, errors = new_database.insert_penjualan(df_input, default_top=top)
+
+            if success > 0:
+                st.success("✅ Transaksi berhasil disimpan")
             else:
-                st.success(f"✅ Data transaksi No. {no_nota} berhasil disimpan!")
+                st.error("❌ Gagal menyimpan transaksi")
+                if errors:
+                    st.error(errors[0])
+
+            # Validasi input
+            # if customer_id == "" or jenis_barang == "" or top == "":
+            #     st.error("⚠️ Mohon lengkapi semua data yang diperlukan!")
+            # elif jumlah <= 0:
+            #     st.error("⚠️ Jumlah harus lebih dari 0!")
+            # else:
+            #     st.success(f"✅ Data transaksi No. {no_nota} berhasil disimpan!")
                 # Di sini bisa tambahkan kode untuk menyimpan ke database
     
     with col_btn2:
@@ -147,8 +153,9 @@ with tab2:
     
     with st.expander("ℹ️ Format file Excel data penjualan"):
         st.write("""
-        - Kolom: `No Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
-        - Nama Barang harus sudah ada di database
+        - Kolom wajib: `No Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
+        - Kolom opsional: `TOP`
+        - Nama Barang dan Customer harus sudah ada di database
         """)
     
     uploaded_file = st.file_uploader(
@@ -175,7 +182,7 @@ with tab2:
 
             df = df.dropna(how="all")
             df = df[EXPECTED_COLS]
-            df = database.clean_excel_apostrophe(df)
+            df = new_database.clean_excel_apostrophe(df)
 
             st.success("✅ Data berhasil dibersihkan!")
                     
@@ -183,12 +190,31 @@ with tab2:
             st.dataframe(df.head(10), use_container_width=True)
             st.info(f"Total baris: {len(df)}")
 
+            # ======================
+            # INPUT TOP
+            # ======================
+            top_excel = st.selectbox(
+                "Term of Payment untuk seluruh data:",
+                options=[
+                    "",
+                    "Cash",
+                    "Tempo 7 Hari",
+                    "Tempo 14 Hari",
+                    "Tempo 30 Hari",
+                    "Tempo 45 Hari"
+                ],
+                help="TOP ini akan diterapkan ke semua transaksi dari file Excel"
+            )
+
             if st.button("💾 Simpan", type="primary", use_container_width=True):
+                if top_excel == "":
+                    st.error("⚠️ Term of Payment wajib dipilih")
+                    st.stop()
                 with st.spinner("Mengupload data ke database..."):
-                    success_count, error_count, errors = database.insert_data_transaksi(df)
-                    success_count = len(df)
-                    error_count = 0
-                    errors = []
+                    success_count, error_count, errors = new_database.insert_penjualan(df, default_top=top_excel)
+                    # success_count = len(df)
+                    # error_count = 0
+                    # errors = []
                             
                 if success_count > 0:
                     st.success(f"✅ Berhasil mengupload {success_count} baris data!")
@@ -211,156 +237,68 @@ with tab2:
 
 with tab3:
     st.subheader("📋 Daftar Transaksi Penjualan")
-    
-    # Filter tanggal
+
     col1, col2, col3, col4 = st.columns([1.2, 1.5, 1.5, 3])
-    
+
     with col1:
-        # Simulasi data tanggal (nanti ganti dengan query database)
-        all_dates_query = "SELECT DISTINCT DATE(tgl_faktur) as tanggal FROM penjualan ORDER BY tanggal DESC"
-        all_dates_result = database.run_query(all_dates_query)
-        
-        # Sementara data dummy
-        available_dates = [datetime.now().date()]
-        
-        # Date input dengan calendar
         selected_date = st.date_input(
             "Filter Tanggal",
             value=None,
             help="Kosongkan untuk tampilkan semua data"
         )
-    
-    with col2:
-        pelanggan_list = database.run_query("""
-            SELECT DISTINCT nama_pelanggan
-            FROM penjualan
-            ORDER BY nama_pelanggan
-        """)
-        pelanggan_options = ["Semua"] + [p[0] for p in pelanggan_list]
 
-        selected_pelanggan = st.selectbox(
-            "👤 Nama Pelanggan",
-            pelanggan_options
-        )
+    with col2:
+        data_customer = new_database.get_all_data_customer(columns="nama")
+        customer_options = ["Semua"] + data_customer["nama"].tolist()
+        selected_pelanggan = st.selectbox("👤 Nama Pelanggan", customer_options)
 
     with col3:
-        barang_list = database.run_query("""
-            SELECT DISTINCT b.nama
-            FROM barang b
-            JOIN penjualan p ON p.id_barang = b.id
-            ORDER BY b.nama
-        """)
-        barang_options = ["Semua"] + [b[0] for b in barang_list]
+        data_barang = new_database.get_all_data_barang(columns="nama")
+        barang_options = ["Semua"] + data_barang["nama"].tolist()
+        selected_barang = st.selectbox("📦 Nama Barang", barang_options)
 
-        selected_barang = st.selectbox(
-            "📦 Nama Barang",
-            barang_options
+    # ======================
+    # AMBIL DATA
+    # ======================
+    df_penjualan = new_database.get_penjualan_data(
+        tanggal=selected_date,
+        customer=selected_pelanggan,
+        barang=selected_barang
+    )
+
+    if not df_penjualan.empty:
+        df_penjualan['tanggal'] = pd.to_datetime(df_penjualan['tanggal']).dt.strftime('%d %b %Y')
+        df_penjualan['subtotal'] = df_penjualan['subtotal'].apply(
+            lambda x: f"Rp {x:,.0f}".replace(",", ".")
         )
-    
-    # Query data transaksi
-    try:
-        query = """
-            SELECT 
-                p.id,
-                p.no_faktur AS 'No Faktur',
-                p.tgl_faktur AS 'Tgl Faktur',
-                p.nama_pelanggan AS 'Nama Pelanggan',
-                b.nama AS 'Nama Barang',
-                p.kuantitas AS 'Kuantitas',
-                p.jumlah AS 'Jumlah'
-            FROM penjualan p
-            JOIN barang b ON p.id_barang = b.id
-            WHERE 1=1
-        """
 
-        params = []
+        df_penjualan.insert(0, 'Hapus', False)
 
-        if selected_date:
-            query += " AND DATE(p.tgl_faktur) = %s"
-            params.append(selected_date)
+        edited_df = st.data_editor(
+            df_penjualan,
+            hide_index=True,
+            use_container_width=True,
+            disabled=True,
+            column_config={
+                "Hapus": st.column_config.CheckboxColumn("Pilih"),
+                "id": None
+            }
+        )
 
-        if selected_pelanggan != "Semua":
-            query += " AND p.nama_pelanggan = %s"
-            params.append(selected_pelanggan)
+        selected = edited_df[edited_df['Hapus'] == True]
 
-        if selected_barang != "Semua":
-            query += " AND b.nama = %s"
-            params.append(selected_barang)
+        if not selected.empty:
+            st.warning(f"⚠️ {len(selected)} transaksi akan dihapus")
 
-        query += " ORDER BY p.tgl_faktur DESC"
+            if st.button("🗑️ Hapus Data Terpilih", type="primary"):
+                for pid in selected['id'].unique():
+                    database.delete_penjualan(pid)
 
-        conn = database.get_connection()
-        df_penjualan = pd.read_sql(query, conn, params=params)
-        conn.close()
-            
-        if not df_penjualan.empty:
-            # FORMAT TANGGAL → 13 Jan 2025
-            df_penjualan['Tgl Faktur'] = pd.to_datetime(df_penjualan['Tgl Faktur']).dt.strftime('%d %b %Y')
-            
-            # Format harga ke Rupiah
-            df_penjualan['Jumlah'] = df_penjualan['Jumlah'].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
-            
-            # Tambahkan kolom select untuk delete
-            df_penjualan.insert(0, 'Hapus', False)
-            
-            # Tampilkan dengan data_editor
-            edited_df = st.data_editor(
-                df_penjualan,
-                use_container_width=True,
-                column_config={
-                    "Hapus": st.column_config.CheckboxColumn(
-                        "Pilih",
-                        help="Centang untuk menghapus data",
-                        default=False
-                    ),
-                    "id": None,  # Hide ID column
-                    "Tgl Faktur": st.column_config.TextColumn("Tgl Faktur"),
-                    "Nama Customer": st.column_config.TextColumn("Nama Customer"),
-                    "Nama Barang": st.column_config.TextColumn("Nama Barang"),
-                    "Kuantitas": st.column_config.TextColumn("Kuantitas"),
-                    "Jumlah": st.column_config.TextColumn("Jumlah")
-                },
-                disabled=["No Faktur", "Tgl Faktur", "Nama Pelanggan", "Nama Barang", "Kuantitas", "Jumlah"],
-                hide_index=True,
-                key="penjualan_editor"
-            )
-            
-            # Tombol delete
-            selected_for_delete = edited_df[edited_df['Hapus'] == True]
-            
-            if len(selected_for_delete) > 0:
-                st.warning(f"⚠️ {len(selected_for_delete)} data akan dihapus")
-                
-                col1, col2 = st.columns([1, 5])
-                with col1:
-                    if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                        try:
-                            conn = database.get_connection()
-                            cursor = conn.cursor()
-                            
-                            deleted_count = 0
-                            for idx, row in selected_for_delete.iterrows():
-                                delete_query = "DELETE FROM transaksi WHERE id = %s"
-                                cursor.execute(delete_query, (int(row['id']),))
-                                deleted_count += 1
-                            
-                            conn.commit()
-                            cursor.close()
-                            conn.close()
-                            
-                            st.success(f"✅ Berhasil menghapus {deleted_count} data!")
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-            
-            # Info jumlah data
-            st.caption(f"📊 Total: {len(df_penjualan)} data")
-        else:
-            st.warning("Tidak ada data transaksi" + (f" pada tanggal {selected_date}" if selected_date else ""))
-            
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+                st.success("✅ Data berhasil dihapus")
+                st.rerun()
+    else:
+        st.warning("Tidak ada data transaksi")
+
 
 # Footer
 # st.markdown("---")
