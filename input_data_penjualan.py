@@ -238,7 +238,7 @@ with tab2:
 with tab3:
     st.subheader("📋 Daftar Transaksi Penjualan")
 
-    col1, col2, col3, col4 = st.columns([1.2, 1.5, 1.5, 3])
+    col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
 
     with col1:
         selected_date = st.date_input(
@@ -250,7 +250,7 @@ with tab3:
     with col2:
         data_customer = new_database.get_all_data_customer(columns="nama")
         customer_options = ["Semua"] + data_customer["nama"].tolist()
-        selected_pelanggan = st.selectbox("👤 Nama Pelanggan", customer_options)
+        selected_pelanggan = st.selectbox("👤 Nama Customer", customer_options)
 
     with col3:
         data_barang = new_database.get_all_data_barang(columns="nama")
@@ -272,32 +272,56 @@ with tab3:
             lambda x: f"Rp {x:,.0f}".replace(",", ".")
         )
 
+        # Hitung total
+        total_transaksi = len(df_penjualan)
+        st.info(f"Menampilkan {total_transaksi} transaksi")
+
+        # Tambah kolom checkbox untuk hapus
         df_penjualan.insert(0, 'Hapus', False)
 
+        # Prepare kolom untuk ditampilkan (hide id)
+        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal']].copy()
+
+        column_config = {
+            "Hapus": st.column_config.CheckboxColumn("Pilih", width="small"),
+            "no_nota": st.column_config.TextColumn("No. Faktur", width="medium"),
+            "tanggal": st.column_config.TextColumn("Tanggal", width="medium"),
+            "nama_customer": st.column_config.TextColumn("Customer", width="medium"),
+            "nama_barang": st.column_config.TextColumn("Barang", width="medium"),
+            "kuantitas": st.column_config.NumberColumn("Qty", width="small"),
+            "subtotal": st.column_config.TextColumn("Subtotal", width="medium")
+        }
+
         edited_df = st.data_editor(
-            df_penjualan,
+            df_display,
             hide_index=True,
             use_container_width=True,
-            disabled=True,
-            column_config={
-                "Hapus": st.column_config.CheckboxColumn("Pilih"),
-                "id": None
-            }
+            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total"],
+            column_config=column_config,
+            key="penjualan_editor"
         )
 
-        selected = edited_df[edited_df['Hapus'] == True]
+        # Ambil baris yang dicentang
+        selected_rows = edited_df[edited_df['Hapus'] == True]
 
-        if not selected.empty:
-            st.warning(f"⚠️ {len(selected)} transaksi akan dihapus")
+        if not selected_rows.empty:
+            # Ambil ID dari dataframe asli berdasarkan index yang sama
+            selected_ids = df_penjualan.loc[selected_rows.index, 'id'].unique()
+            
+            st.warning(f"⚠️ {len(selected_ids)} transaksi akan dihapus")
 
             if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                for pid in selected['id'].unique():
-                    database.delete_penjualan(pid)
+                try:
+                    with st.spinner("Menghapus data..."):
+                        for pid in selected_ids:
+                            new_database.delete_penjualan(pid)
 
-                st.success("✅ Data berhasil dihapus")
-                st.rerun()
+                    st.success("✅ Data berhasil dihapus")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Gagal menghapus data: {str(e)}")
     else:
-        st.warning("Tidak ada data transaksi")
+        st.warning("⚠️ Tidak ada data transaksi sesuai filter")
 
 
 # Footer
