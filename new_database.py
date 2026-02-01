@@ -933,7 +933,7 @@ def get_penjualan_dates():
     return df['tanggal'].tolist()
 
 # Ambil data penjualan
-def get_penjualan_data(tanggal=None, customer=None, barang=None):
+def get_data_penjualan(tanggal=None, customer=None, barang=None):
     conn = get_connection()
 
     query = """
@@ -944,7 +944,8 @@ def get_penjualan_data(tanggal=None, customer=None, barang=None):
             c.nama AS nama_customer,
             b.nama AS nama_barang,
             pd.kuantitas,
-            pd.subtotal
+            pd.subtotal,
+            p.total AS total_nota
         FROM penjualan p
         JOIN penjualan_detail pd ON p.id = pd.id_penjualan
         JOIN barang b ON pd.id_barang = b.id
@@ -966,7 +967,7 @@ def get_penjualan_data(tanggal=None, customer=None, barang=None):
         query += " AND b.nama = %s"
         params.append(barang)
 
-    query += " ORDER BY p.tanggal DESC"
+    query += " ORDER BY p.tanggal DESC, p.no_nota DESC"
 
     df = pd.read_sql(query, conn, params=params)
     conn.close()

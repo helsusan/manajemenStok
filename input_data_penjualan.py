@@ -238,6 +238,14 @@ with tab2:
 with tab3:
     st.subheader("📋 Daftar Transaksi Penjualan")
 
+    with st.expander("ℹ️ Info edit & hapus transaksi"):
+        st.write("""
+        - Pilih checkbox untuk menandai transaksi yang akan dihapus. Klik tombol `Hapus Data Terpilih` untuk menghapus transaksi yang ditandai.
+        - Jika ingin edit data, hapus data lama dan input kembali pada tab `Input Manual`.
+        
+        ⚠️ Menghapus transaksi bersifat permanen dan tidak dapat dikembalikan
+        """)
+
     col1, col2, col3 = st.columns([1.5, 1.5, 1.5])
 
     with col1:
@@ -260,7 +268,7 @@ with tab3:
     # ======================
     # AMBIL DATA
     # ======================
-    df_penjualan = new_database.get_penjualan_data(
+    df_penjualan = new_database.get_data_penjualan(
         tanggal=selected_date,
         customer=selected_pelanggan,
         barang=selected_barang
@@ -268,11 +276,17 @@ with tab3:
 
     if not df_penjualan.empty:
         df_penjualan['tanggal'] = pd.to_datetime(df_penjualan['tanggal']).dt.strftime('%d %b %Y')
+
         df_penjualan['subtotal'] = df_penjualan['subtotal'].apply(
             lambda x: f"Rp {x:,.0f}".replace(",", ".")
         )
 
-        # Hitung total
+        if 'total_nota' in df_penjualan.columns:
+            df_penjualan['total_nota'] = df_penjualan['total_nota'].apply(
+                lambda x: f"Rp {x:,.0f}".replace(",", ".")
+            )
+
+        # Hitung total transaksi yang tertampil
         total_transaksi = len(df_penjualan)
         st.info(f"Menampilkan {total_transaksi} transaksi")
 
@@ -280,23 +294,24 @@ with tab3:
         df_penjualan.insert(0, 'Hapus', False)
 
         # Prepare kolom untuk ditampilkan (hide id)
-        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal']].copy()
+        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal', 'total_nota']].copy()
 
         column_config = {
-            "Hapus": st.column_config.CheckboxColumn("Pilih", width="small"),
-            "no_nota": st.column_config.TextColumn("No. Faktur", width="medium"),
-            "tanggal": st.column_config.TextColumn("Tanggal", width="medium"),
-            "nama_customer": st.column_config.TextColumn("Customer", width="medium"),
-            "nama_barang": st.column_config.TextColumn("Barang", width="medium"),
-            "kuantitas": st.column_config.NumberColumn("Qty", width="small"),
-            "subtotal": st.column_config.TextColumn("Subtotal", width="medium")
+            "Hapus": st.column_config.CheckboxColumn("Pilih"),
+            "no_nota": st.column_config.TextColumn("No. Faktur"),
+            "tanggal": st.column_config.TextColumn("Tanggal"),
+            "nama_customer": st.column_config.TextColumn("Customer"),
+            "nama_barang": st.column_config.TextColumn("Barang"),
+            "kuantitas": st.column_config.NumberColumn("Qty"),
+            "subtotal": st.column_config.TextColumn("Subtotal"),
+            "total_nota": st.column_config.TextColumn("Total"),
         }
 
         edited_df = st.data_editor(
             df_display,
             hide_index=True,
             use_container_width=True,
-            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total"],
+            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total_nota"],
             column_config=column_config,
             key="penjualan_editor"
         )
