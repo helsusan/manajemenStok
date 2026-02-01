@@ -795,7 +795,7 @@ def delete_supplier_pricelist(id_pricelist):
 # ================================================
 
 # Insert data penjualan
-def insert_penjualan(df):
+def insert_penjualan(df, default_top=None):
     conn = get_connection()
     cursor = conn.cursor()
     success_count = 0
@@ -817,7 +817,7 @@ def insert_penjualan(df):
             id_barang = get_barang_id(nama_barang)
             if not id_barang:
                 raise Exception(f"Baris {index + 2}: Barang '{nama_barang}' tidak ditemukan")
-            id_barang = id_barang[0]
+            # id_barang = id_barang[0]
 
             # ======================
             # DATA HEADER
@@ -834,14 +834,17 @@ def insert_penjualan(df):
                 id_customer = get_customer_id(nama_pelanggan)
                 if not id_customer:
                     raise Exception(f"Baris {index + 2}: Customer '{nama_pelanggan}' tidak ditemukan")
+                
+            # TOP → prioritas DataFrame → fallback ke default
+            top = row.get("TOP") if "TOP" in df.columns else default_top
 
             # ======================
             # INSERT PENJUALAN (HEADER)
             # ======================
             if no_nota not in penjualan_cache:
                 query_penjualan = """
-                INSERT INTO penjualan (no_nota, tanggal, id_customer, total, top, metode_bayar)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO penjualan (no_nota, tanggal, id_customer, total, top)
+                VALUES (%s, %s, %s, %s, %s)
                 """
                 cursor.execute(
                     query_penjualan,
@@ -850,8 +853,7 @@ def insert_penjualan(df):
                         tanggal,
                         id_customer,
                         0,          # total diupdate belakangan
-                        None,       # TOP
-                        None        # metode_bayar
+                        top
                     )
                 )
                 id_penjualan = cursor.lastrowid
@@ -863,17 +865,26 @@ def insert_penjualan(df):
                 id_penjualan = penjualan_cache[no_nota]["id"]
 
             # ======================
-            # DETAIL
+            # DETAIL PENJUALAN
             # ======================
-            kuantitas = row.get('Kuantitas')
-            harga_satuan = row.get('Harga Satuan') or row.get('Jumlah')
+            kuantitas = row.get("Kuantitas")
+            jumlah = row.get("Jumlah")
+            harga_satuan = row.get("Harga Satuan")
 
             if pd.isna(kuantitas):
-                raise Exception(f"Baris {index + 2}: Kuantitas kosong")
+                raise Exception(f"Baris {index+2}: Kuantitas tidak valid")
 
-            kuantitas = int(float(kuantitas))
-            harga_satuan = float(harga_satuan) if not pd.isna(harga_satuan) else 0
-            subtotal = kuantitas * harga_satuan
+            kuantitas = int(kuantitas)
+
+            # LOGIKA HARGA SATUAN
+            if not pd.isna(harga_satuan):
+                harga_satuan = float(harga_satuan)
+                subtotal = kuantitas * harga_satuan
+            else:
+                if pd.isna(jumlah):
+                    raise Exception(f"Baris {index+2}: Jumlah kosong")
+                subtotal = float(jumlah)
+                harga_satuan = subtotal / kuantitas
 
             query_detail = """
             INSERT INTO penjualan_detail
