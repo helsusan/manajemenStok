@@ -5,7 +5,7 @@ import new_database
 
 st.set_page_config(
     page_title="Data Customer",
-    page_icon="👥",
+    page_icon="👤",
     layout="wide"
 )
 
@@ -34,8 +34,8 @@ if "temp_pricelist" not in st.session_state:
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 Input Manual",
     "📤 Upload Excel", 
-    "👥 Daftar Customer",
-    "💰 Daftar Pricelist"
+    "👤 Daftar Customer",
+    "🏷️ Daftar Pricelist"
 ])
 
 current_tab = (
@@ -61,7 +61,7 @@ with tab1:
 
     mode = st.radio(
         "Pilih Mode Input:",
-        ["👥 Customer Baru", "💰 Tambah Pricelist ke Customer"],
+        ["👤 Customer Baru", "🏷️ Tambah Pricelist ke Customer"],
         horizontal=True,
         key="input_mode"
     )
@@ -69,7 +69,7 @@ with tab1:
     col1, col2 = st.columns([2, 3])
     
     with col1:
-        if mode == "👥 Customer Baru":
+        if mode == "👤 Customer Baru":
             nama_customer_baru = st.text_input(
                 "Nama Customer Baru", 
                 placeholder="Contoh: Toko Sumber Rejeki",
@@ -102,7 +102,7 @@ with tab1:
             nama_customer_baru = None
     
     with col2:
-        st.markdown("### 💰 Pricelist")
+        st.markdown("### 🏷️ Pricelist")
         
         # Ambil daftar barang untuk dropdown
         df_barang = new_database.get_all_data_barang(["id", "nama"])
@@ -173,11 +173,11 @@ with tab1:
     st.markdown("---")
     
     # Tombol simpan dengan label yang sesuai mode
-    btn_label = "💾 Simpan Customer & Pricelist" if mode == "🆕 Customer Baru" else "💾 Simpan Pricelist"
+    btn_label = "💾 Simpan Customer & Pricelist" if mode == "👤 Customer Baru" else "💾 Simpan Pricelist"
     
     if st.button(btn_label, type="primary", use_container_width=True, key="btn_simpan_manual"):
         # Validasi berdasarkan mode
-        if mode == "🆕 Customer Baru":
+        if mode == "👤 Customer Baru":
             if not nama_customer_baru or nama_customer_baru.strip() == "":
                 st.error("❌ Nama customer tidak boleh kosong!")
             else:
@@ -432,7 +432,7 @@ with tab2:
 # ================================================
 
 with tab3:
-    st.subheader("👥 Daftar Customer")
+    st.subheader("👤 Daftar Customer")
 
     with st.expander("ℹ️ Info edit & hapus customer"):
         st.write("""
@@ -548,7 +548,7 @@ with tab3:
 # ================================================
 
 with tab4:
-    st.subheader("💰 Daftar Pricelist")
+    st.subheader("🏷️ Daftar Pricelist")
     
     with st.expander("ℹ️ Info edit & hapus pricelist"):
         st.write("""
