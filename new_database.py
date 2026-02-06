@@ -794,6 +794,27 @@ def delete_supplier_pricelist(id_pricelist):
 # DATA PENJUALAN
 # ================================================
 
+# Cek apakah sudah ada penjualan dengan no_nota, tanggal, dan customer yang sama
+def get_existing_penjualan(no_nota, tanggal, id_customer):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT id, total 
+        FROM penjualan 
+        WHERE no_nota = %s AND tanggal = %s AND id_customer = %s
+        LIMIT 1
+    """
+    cursor.execute(query, (str(no_nota), tanggal, int(id_customer)))
+    result = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    if result:
+        return {"id": result[0], "total": float(result[1])}
+    return None
+
 # Insert data penjualan
 def insert_penjualan(df, default_top=None):
     conn = get_connection()
@@ -817,7 +838,6 @@ def insert_penjualan(df, default_top=None):
             id_barang = get_barang_id(nama_barang)
             if not id_barang:
                 raise Exception(f"Baris {index + 2}: Barang '{nama_barang}' tidak ditemukan")
-            # id_barang = id_barang[0]
 
             # ======================
             # DATA HEADER
@@ -839,30 +859,49 @@ def insert_penjualan(df, default_top=None):
             top = row.get("TOP") if "TOP" in df.columns else default_top
 
             # ======================
-            # INSERT PENJUALAN (HEADER)
+            # CEK DATABASE DULU (UNTUK INPUT MANUAL)
             # ======================
             if no_nota not in penjualan_cache:
-                query_penjualan = """
-                INSERT INTO penjualan (no_nota, tanggal, id_customer, total, top)
-                VALUES (%s, %s, %s, %s, %s)
-                """
-                cursor.execute(
-                    query_penjualan,
-                    (
-                        str(no_nota),
-                        tanggal,
-                        id_customer,
-                        0,          # total diupdate belakangan
-                        top
+                # Cek apakah transaksi sudah ada di database
+                cursor.execute("""
+                    SELECT id, total 
+                    FROM penjualan 
+                    WHERE no_nota = %s AND tanggal = %s AND id_customer = %s
+                    LIMIT 1
+                """, (str(no_nota), tanggal, id_customer))
+                
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Transaksi sudah ada di database, gunakan yang ada
+                    penjualan_cache[no_nota] = {
+                        "id": existing[0],
+                        "total": float(existing[1])
+                    }
+                else:
+                    # Transaksi belum ada, buat baru
+                    query_penjualan = """
+                    INSERT INTO penjualan (no_nota, tanggal, id_customer, total, top)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(
+                        query_penjualan,
+                        (
+                            str(no_nota),
+                            tanggal,
+                            id_customer,
+                            0,          # total diupdate belakangan
+                            top
+                        )
                     )
-                )
-                id_penjualan = cursor.lastrowid
-                penjualan_cache[no_nota] = {
-                    "id": id_penjualan,
-                    "total": 0
-                }
-            else:
-                id_penjualan = penjualan_cache[no_nota]["id"]
+                    id_penjualan = cursor.lastrowid
+                    penjualan_cache[no_nota] = {
+                        "id": id_penjualan,
+                        "total": 0
+                    }
+
+            # Ambil id_penjualan dari cache
+            id_penjualan = penjualan_cache[no_nota]["id"]
 
             # ======================
             # DETAIL PENJUALAN
@@ -886,17 +925,51 @@ def insert_penjualan(df, default_top=None):
                 subtotal = float(jumlah)
                 harga_satuan = subtotal / kuantitas
 
-            query_detail = """
-            INSERT INTO penjualan_detail
-            (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
-            VALUES (%s, %s, %s, %s, %s)
-            """
-            cursor.execute(
-                query_detail,
+            # ======================
+            # CEK APAKAH BARANG SUDAH ADA DI DETAIL
+            # ======================
+            cursor.execute("""
+                SELECT id, kuantitas, subtotal 
+                FROM penjualan_detail 
+                WHERE id_penjualan = %s AND id_barang = %s
+                LIMIT 1
+            """, (id_penjualan, id_barang))
+            
+            existing_detail = cursor.fetchone()
+            
+            if existing_detail:
+                # Barang sudah ada, UPDATE kuantitas dan subtotal
+                detail_id = existing_detail[0]
+                old_kuantitas = existing_detail[1]
+                old_subtotal = float(existing_detail[2])
+                
+                new_kuantitas = old_kuantitas + kuantitas
+                new_subtotal = old_subtotal + subtotal
+                
+                query_update = """
+                UPDATE penjualan_detail
+                SET kuantitas = %s, subtotal = %s
+                WHERE id = %s
+                """
+                cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
+                
+                # Update total penjualan (tambah selisihnya aja)
+                penjualan_cache[no_nota]["total"] += subtotal
+                
+            else:
+                # Barang belum ada, INSERT baru
+                query_detail = """
+                INSERT INTO penjualan_detail
                 (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
-            )
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                cursor.execute(
+                    query_detail,
+                    (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
+                )
+                
+                penjualan_cache[no_nota]["total"] += subtotal
 
-            penjualan_cache[no_nota]["total"] += subtotal
             success_count += 1
 
         # ======================
@@ -945,7 +1018,8 @@ def get_data_penjualan(tanggal=None, customer=None, barang=None):
             b.nama AS nama_barang,
             pd.kuantitas,
             pd.subtotal,
-            p.total AS total_nota
+            p.total AS total_nota,
+            p.top AS top
         FROM penjualan p
         JOIN penjualan_detail pd ON p.id = pd.id_penjualan
         JOIN barang b ON pd.id_barang = b.id

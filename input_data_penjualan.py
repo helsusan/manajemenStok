@@ -5,7 +5,7 @@ import new_database
 
 st.set_page_config(
     page_title="Data Penjualan",
-    page_icon="",
+    page_icon="🛍️",
     layout="wide"
 )
 
@@ -78,71 +78,64 @@ with tab1:
         )
         
         total = kuantitas * harga_satuan        
-        st.markdown(f"""
-            <div style='background-color: #e8f4f8; padding: 10px; border-radius: 5px; border-left: 4px solid #0066cc;'>
-                <p style='margin: 0; font-size: 14px; color: #666;'>Total yang harus dibayar:</p>
-                <p style='margin: 0; font-size: 24px; font-weight: bold; color: #0066cc;'>
-                    Rp {total:,.0f}
-                </p>
-            </div>
-        """.replace(",", "."), unsafe_allow_html=True)
+        # st.markdown(f"""
+        #     <div style='background-color: #e8f4f8; padding: 10px; border-radius: 5px; border-left: 4px solid #0066cc;'>
+        #         <p style='margin: 0; font-size: 14px; color: #666;'>Total yang harus dibayar:</p>
+        #         <p style='margin: 0; font-size: 24px; font-weight: bold; color: #0066cc;'>
+        #             Rp {total:,.0f}
+        #         </p>
+        #     </div>
+        # """.replace(",", "."), unsafe_allow_html=True)
 
-        top = st.selectbox(
-            "Term of Payment:",
-            options=["", "Cash", "Tempo 7 Hari", "Tempo 14 Hari", "Tempo 30 Hari", "Tempo 45 Hari"],
-            help="Pilih terms of payment"
+        st.text_input(
+            "Total ",
+            value=f"Rp {total:,.0f}".replace(",", "."),
+            disabled=True
+        )
+
+        top = st.number_input(
+            "Term of Payment (hari)",
+            min_value=0,
+            step=1,
+            format="%d",
+            help="Pembayaran harus lunas dalam berapa hari"
         )
     
-    # Tombol Aksi
-    col_btn1, col_btn2, col_btn3, col_btn4 = st.columns([1, 1, 1, 3])
+    st.markdown("---")
     
-    with col_btn1:
-        if st.button("💾 Simpan", type="primary", use_container_width=True, key="btn_input_manual"):
-            # ======================
-            # VALIDASI SEDERHANA
-            # ======================
-            if not no_faktur:
-                st.error("No Faktur wajib diisi")
-                st.stop()
+    if st.button("💾 Simpan", type="primary", use_container_width=True, key="btn_input_manual"):
+        # ======================
+        # VALIDASI SEDERHANA
+        # ======================
+        if not no_faktur:
+            st.error("No Faktur wajib diisi")
+            st.stop()
 
-            if kuantitas <= 0:
-                st.error("Kuantitas harus lebih dari 0")
-                st.stop()
+        if kuantitas <= 0:
+            st.error("Kuantitas harus lebih dari 0")
+            st.stop()
 
-            # ======================
-            # BENTUK DATAFRAME SESUAI INSERT_PENJUALAN
-            # ======================
-            df_input = pd.DataFrame([{
-                "No. Faktur": no_faktur,
-                "Tgl Faktur": tanggal,
-                "Nama Pelanggan": nama_customer,
-                "Keterangan Barang": jenis_barang,
-                "Kuantitas": kuantitas,
-                "Harga Satuan": float(harga_satuan),
-                "Jumlah": float(total)
-            }])
+        # ======================
+        # BENTUK DATAFRAME SESUAI INSERT_PENJUALAN
+        # ======================
+        df_input = pd.DataFrame([{
+            "No. Faktur": no_faktur,
+            "Tgl Faktur": tanggal,
+            "Nama Pelanggan": nama_customer,
+            "Keterangan Barang": jenis_barang,
+            "Kuantitas": kuantitas,
+            "Harga Satuan": float(harga_satuan),
+            "Jumlah": float(total)
+        }])
 
-            success, failed, errors = new_database.insert_penjualan(df_input, default_top=top)
+        success, failed, errors = new_database.insert_penjualan(df_input, default_top=top)
 
-            if success > 0:
-                st.success("✅ Transaksi berhasil disimpan")
-            else:
-                st.error("❌ Gagal menyimpan transaksi")
-                if errors:
-                    st.error(errors[0])
-
-            # Validasi input
-            # if customer_id == "" or jenis_barang == "" or top == "":
-            #     st.error("⚠️ Mohon lengkapi semua data yang diperlukan!")
-            # elif jumlah <= 0:
-            #     st.error("⚠️ Jumlah harus lebih dari 0!")
-            # else:
-            #     st.success(f"✅ Data transaksi No. {no_nota} berhasil disimpan!")
-                # Di sini bisa tambahkan kode untuk menyimpan ke database
-    
-    with col_btn2:
-        if st.button("🔄 Reset", use_container_width=True):
-            st.rerun()
+        if success > 0:
+            st.success("✅ Transaksi berhasil disimpan")
+        else:
+            st.error("❌ Gagal menyimpan transaksi")
+            if errors:
+                st.error(errors[0])
 
 # ================================================
 # TAB 2 : UPLOAD EXCEL
@@ -193,28 +186,20 @@ with tab2:
             # ======================
             # INPUT TOP
             # ======================
-            top_excel = st.selectbox(
-                "Term of Payment untuk seluruh data:",
-                options=[
-                    "",
-                    "Cash",
-                    "Tempo 7 Hari",
-                    "Tempo 14 Hari",
-                    "Tempo 30 Hari",
-                    "Tempo 45 Hari"
-                ],
-                help="TOP ini akan diterapkan ke semua transaksi dari file Excel"
+            top_excel = st.number_input(
+                "Term of Payment untuk seluruh data (hari)",
+                min_value=0,
+                step=1,
+                format="%d",
+                help="Semua transaksi dari file Excel pembayarannya harus lunas dalam berapa hari"
             )
 
             if st.button("💾 Simpan", type="primary", use_container_width=True):
                 if top_excel == "":
-                    st.error("⚠️ Term of Payment wajib dipilih")
+                    st.error("⚠️ Term of Payment wajib diisi")
                     st.stop()
                 with st.spinner("Mengupload data ke database..."):
                     success_count, error_count, errors = new_database.insert_penjualan(df, default_top=top_excel)
-                    # success_count = len(df)
-                    # error_count = 0
-                    # errors = []
                             
                 if success_count > 0:
                     st.success(f"✅ Berhasil mengupload {success_count} baris data!")
@@ -294,7 +279,7 @@ with tab3:
         df_penjualan.insert(0, 'Hapus', False)
 
         # Prepare kolom untuk ditampilkan (hide id)
-        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal', 'total_nota']].copy()
+        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal', 'total_nota', 'top']].copy()
 
         column_config = {
             "Hapus": st.column_config.CheckboxColumn("Pilih"),
@@ -305,13 +290,14 @@ with tab3:
             "kuantitas": st.column_config.NumberColumn("Qty"),
             "subtotal": st.column_config.TextColumn("Subtotal"),
             "total_nota": st.column_config.TextColumn("Total"),
+            "top": st.column_config.NumberColumn("Terms of Payment (hari)"),
         }
 
         edited_df = st.data_editor(
             df_display,
             hide_index=True,
             use_container_width=True,
-            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total_nota"],
+            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total_nota", "top"],
             column_config=column_config,
             key="penjualan_editor"
         )
