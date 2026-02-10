@@ -1489,7 +1489,7 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
             p.id,
             p.no_nota,
             p.tanggal,
-            c.nama AS nama_supplier,
+            s.nama AS nama_supplier,
             b.nama AS nama_barang,
             pd.kuantitas,
             pd.subtotal,
@@ -1498,7 +1498,7 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
         FROM pembelian p
         JOIN pembelian_detail pd ON p.id = pd.id_pembelian
         JOIN barang b ON pd.id_barang = b.id
-        LEFT JOIN supplier s ON p.id_supplier = c.id
+        LEFT JOIN supplier s ON p.id_supplier = s.id
         WHERE 1=1
     """
 
@@ -1509,7 +1509,7 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
         params.append(tanggal)
 
     if supplier and supplier != "Semua":
-        query += " AND c.nama = %s"
+        query += " AND s.nama = %s"
         params.append(supplier)
 
     if barang and barang != "Semua":
