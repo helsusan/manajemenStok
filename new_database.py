@@ -41,6 +41,87 @@ def clean_excel_apostrophe(df):
 
     return df
 
+def format_currency(amount):
+    if amount is None: return "Rp 0"
+    return f"Rp {amount:,.0f}".replace(",", ".")
+
+def show_detail_transaksi(jenis, id_ref):
+    if jenis == 'piutang':
+        data = get_detail_piutang(id_ref)
+        history = get_pembayaran_history('piutang', id_ref)
+        label_partner = "Customer"
+    else:
+        data = get_detail_hutang(id_ref)
+        history = get_pembayaran_history('hutang', id_ref)
+        label_partner = "Supplier"
+        
+    if data:
+        st.subheader(f"{data['no_invoice']}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**{label_partner}:** {data[label_partner.lower()]}")
+            st.write(f"**Tanggal:** {data['tanggal_invoice']}")
+            st.write(f"**Jatuh Tempo:** {data['tanggal_jatuh_tempo']}")
+        with col2:
+            st.write(f"**Total:** {format_currency(data[f'total_{jenis}'])}")
+            st.write(f"**Sisa:** {format_currency(data[f'sisa_{jenis}'])}")
+            st.write(f"**Status:** {data['status']}")
+            
+        st.markdown("---")
+        st.write("📜 **Riwayat Pembayaran**")
+        
+        if not history.empty:
+            # Format display
+            display_hist = history.copy()
+            display_hist['jumlah_bayar'] = display_hist['jumlah_bayar'].apply(lambda x: format_currency(float(x)))
+            st.dataframe(
+                display_hist[['no_pembayaran', 'tanggal_bayar', 'jumlah_bayar', 'metode_bayar', 'keterangan']],
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Belum ada riwayat pembayaran")
+
+def render_payment_form(jenis, row):
+    key_suffix = "p" if jenis == "piutang" else "h"
+    col_sisa = f"sisa_{jenis}"
+    
+    with st.form(key=f"form_bayar_{key_suffix}_{row['id']}"):
+        st.subheader("Form Pembayaran")
+        c1, c2 = st.columns(2)
+        with c1:
+            tgl = st.date_input("Tanggal", value=datetime.now())
+            jml = st.number_input(f"Jumlah (Max: {format_currency(row[col_sisa])})", 
+                                  min_value=0.0, max_value=float(row[col_sisa]), 
+                                  value=float(row[col_sisa]), step=1000.0)
+        with c2:
+            metode = st.selectbox("Metode", ["CASH", "TRANSFER", "GIRO", "LAINNYA"])
+            ref = st.text_input("No Referensi")
+        
+        ket = st.text_area("Keterangan")
+        
+        cb1, cb2 = st.columns(2)
+        with cb1: submit = st.form_submit_button("💾 Simpan", use_container_width=True)
+        with cb2: cancel = st.form_submit_button("❌ Batal", use_container_width=True)
+        
+        if submit:
+            if jml <= 0:
+                st.error("Jumlah harus > 0")
+            else:
+                success, msg = process_pembayaran(
+                    jenis, row['id'], tgl, jml, metode, ref, ket
+                )
+                if success:
+                    st.success(f"✅ {msg}")
+                    st.session_state[f'bayar_{key_suffix}_{row["id"]}'] = False
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
+        
+        if cancel:
+            st.session_state[f'bayar_{key_suffix}_{row["id"]}'] = False
+            st.rerun()
+
 
 
 
@@ -1067,3 +1148,294 @@ def delete_penjualan(id_penjualan):
         conn.close()
 
 
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA PIUTANG
+# ================================================
+
+# Ambil semua data piutang buat dashboard
+def get_piutang_summary():
+    conn = get_connection()
+    query = """
+    SELECT 
+        COUNT(*) as total_invoice,
+        COALESCE(SUM(total), 0) as total_piutang,
+        COALESCE(SUM(terbayar), 0) as total_terbayar,
+        COALESCE(SUM(sisa), 0) as sisa_piutang,
+        COALESCE(SUM(CASE WHEN status = 'OVERDUE' THEN 1 ELSE 0 END), 0) as total_overdue
+    FROM piutang
+    WHERE sisa > 0
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df.iloc[0] if not df.empty else None
+
+# Ambil data piutang sesuai filter
+def get_filtered_piutang(start_date, end_date, id_customer=None, status=None, search=None):
+    conn = get_connection()
+    
+    # Alias kolom agar sesuai dengan logic UI user
+    query = """
+    SELECT 
+        p.id,
+        p.no_nota as no_invoice,
+        c.nama as customer,
+        p.tanggal as tanggal_invoice,
+        p.due_date as tanggal_jatuh_tempo,
+        p.total as total_piutang,
+        p.terbayar as total_terbayar,
+        p.sisa as sisa_piutang,
+        p.status,
+        CASE 
+            WHEN p.status = 'OVERDUE' THEN DATEDIFF(CURDATE(), p.due_date)
+            ELSE 0 
+        END as hari_overdue
+    FROM piutang p
+    JOIN customer c ON p.id_customer = c.id
+    WHERE p.tanggal BETWEEN %s AND %s
+    """
+    params = [start_date, end_date]
+    
+    if id_customer and id_customer != 0:
+        query += " AND p.id_customer = %s"
+        params.append(id_customer)
+        
+    if status and status != "Semua":
+        query += " AND p.status = %s"
+        params.append(status)
+        
+    if search:
+        query += " AND p.no_nota LIKE %s"
+        params.append(f"%{search}%")
+        
+    query += " ORDER BY p.due_date ASC"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+# Ambil semua data piutang
+def get_detail_piutang(id_piutang):
+    conn = get_connection()
+    query = """
+    SELECT p.*, c.nama as customer, 
+           p.no_nota as no_invoice, p.tanggal as tanggal_invoice, 
+           p.due_date as tanggal_jatuh_tempo, p.total as total_piutang, 
+           p.terbayar as total_terbayar, p.sisa as sisa_piutang
+    FROM piutang p
+    JOIN customer c ON p.id_customer = c.id
+    WHERE p.id = %s
+    """
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(query, (int(id_piutang),))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA HUTANG
+# ================================================
+
+# Ambil semua data hutang buat dashboard
+def get_hutang_summary():
+    conn = get_connection()
+    query = """
+    SELECT 
+        COUNT(*) as total_invoice,
+        COALESCE(SUM(total), 0) as total_hutang,
+        COALESCE(SUM(terbayar), 0) as total_terbayar,
+        COALESCE(SUM(sisa), 0) as sisa_hutang,
+        COALESCE(SUM(CASE WHEN status = 'OVERDUE' THEN 1 ELSE 0 END), 0) as total_overdue
+    FROM hutang
+    WHERE sisa > 0
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df.iloc[0] if not df.empty else None
+
+# Ambil data piutang sesuai filter
+def get_filtered_hutang(start_date, end_date, id_supplier=None, status=None, search=None):
+    conn = get_connection()
+    
+    query = """
+    SELECT 
+        h.id,
+        h.no_nota as no_invoice,
+        s.nama as supplier,
+        h.tanggal as tanggal_invoice,
+        h.due_date as tanggal_jatuh_tempo,
+        h.total as total_hutang,
+        h.terbayar as total_terbayar,
+        h.sisa as sisa_hutang,
+        h.status,
+        CASE 
+            WHEN h.status = 'OVERDUE' THEN DATEDIFF(CURDATE(), h.due_date)
+            ELSE 0 
+        END as hari_overdue
+    FROM hutang h
+    JOIN supplier s ON h.id_supplier = s.id
+    WHERE h.tanggal BETWEEN %s AND %s
+    """
+    params = [start_date, end_date]
+    
+    if id_supplier and id_supplier != 0:
+        query += " AND h.id_supplier = %s"
+        params.append(id_supplier)
+        
+    if status and status != "Semua":
+        query += " AND h.status = %s"
+        params.append(status)
+        
+    if search:
+        query += " AND h.no_nota LIKE %s"
+        params.append(f"%{search}%")
+        
+    query += " ORDER BY h.due_date ASC"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+# Ambil semua data piutang
+def get_detail_hutang(id_hutang):
+    conn = get_connection()
+    query = """
+    SELECT h.*, s.nama as supplier,
+           h.no_nota as no_invoice, h.tanggal as tanggal_invoice, 
+           h.due_date as tanggal_jatuh_tempo, h.total as total_hutang, 
+           h.terbayar as total_terbayar, h.sisa as sisa_hutang
+    FROM hutang h
+    JOIN supplier s ON h.id_supplier = s.id
+    WHERE h.id = %s
+    """
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(query, (int(id_hutang),))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DASHBOARD REKAPAN HUTANG & PIUTANG
+# ================================================
+
+def get_overdue_alerts(table_name):
+    conn = get_connection()
+    col_sisa = 'sisa' if table_name == 'piutang' else 'sisa' # sama nama kolomnya
+    
+    # Alert Overdue
+    q_overdue = f"SELECT COUNT(*) as jml, COALESCE(SUM({col_sisa}), 0) as total FROM {table_name} WHERE status = 'OVERDUE'"
+    
+    # Alert Jatuh Tempo Minggu Ini
+    q_due_week = f"""
+    SELECT COUNT(*) as jml, COALESCE(SUM({col_sisa}), 0) as total
+    FROM {table_name}
+    WHERE due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+    AND status != 'LUNAS'
+    """
+    
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(q_overdue)
+    res_overdue = cursor.fetchone()
+    
+    cursor.execute(q_due_week)
+    res_due_week = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    return res_overdue, res_due_week
+
+def get_pembayaran_history(jenis, id_ref):
+    conn = get_connection()
+    table = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
+    col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
+    
+    query = f"""
+    SELECT * FROM {table}
+    WHERE {col_ref} = %s
+    ORDER BY tanggal_bayar DESC
+    """
+    df = pd.read_sql(query, conn, params=(int(id_ref),))
+    conn.close()
+    return df
+
+def process_pembayaran(jenis, id_ref, tanggal_bayar, jumlah_bayar, metode, referensi, keterangan):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        table_bayar = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
+        table_main = "piutang" if jenis == "piutang" else "hutang"
+        col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
+        prefix = "PAY-AR" if jenis == "piutang" else "PAY-AP"
+        
+        # 1. Generate Nomor Pembayaran
+        cursor.execute(f"SELECT COUNT(*) FROM {table_bayar}")
+        count = cursor.fetchone()[0] + 1
+        date_str = datetime.now().strftime('%Y%m%d')
+        no_pembayaran = f"{prefix}-{date_str}-{count:04d}"
+        
+        # 2. Insert Pembayaran
+        query_insert = f"""
+        INSERT INTO {table_bayar} 
+        ({col_ref}, no_pembayaran, tanggal_bayar, jumlah_bayar, metode_bayar, no_referensi, keterangan)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query_insert, (id_ref, no_pembayaran, tanggal_bayar, jumlah_bayar, metode, referensi, keterangan))
+        
+        # 3. Update Saldo Utama (Menggunakan nama kolom asli DB: total, terbayar, sisa)
+        query_update = f"""
+        UPDATE {table_main}
+        SET terbayar = terbayar + %s,
+            sisa = total - (terbayar + %s),
+            status = CASE 
+                WHEN (total - (terbayar + %s)) <= 0 THEN 'LUNAS'
+                ELSE status
+            END
+        WHERE id = %s
+        """
+        # Note: Logic sisa di sini sedikit tricky karena kita update terbayar dulu di memory query
+        # Tapi logic SQL 'terbayar + %s' itu aman karena merujuk nilai row saat ini.
+        # Parameter dikirim 3x (jumlah, jumlah, jumlah)
+        
+        cursor.execute(query_update, (jumlah_bayar, jumlah_bayar, jumlah_bayar, id_ref))
+        
+        conn.commit()
+        return True, "Pembayaran berhasil disimpan"
+        
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cursor.close()
+        conn.close()
