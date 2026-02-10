@@ -861,6 +861,27 @@ def delete_supplier_pricelist(id_pricelist):
     cursor.close()
     conn.close()
 
+def get_harga_supplier(nama_supp, jenis_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT sp.harga
+        FROM supplier s
+        JOIN supplier_pricelist sp ON s.id = sp.id_supplier
+        JOIN barang b ON sp.id_barang = b.id
+        WHERE s.nama = %s AND b.nama = %s
+        LIMIT 1
+    """
+
+    cursor.execute(query, (nama_supp, jenis_barang))
+    result = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    return result[0] if result else None
+
 
 
 
@@ -1054,13 +1075,57 @@ def insert_penjualan(df, default_top=None):
             success_count += 1
 
         # ======================
-        # UPDATE TOTAL PENJUALAN
+        # UPDATE TOTAL PENJUALAN & CREATE PIUTANG
         # ======================
-        for data in penjualan_cache.values():
+        for no_nota, data in penjualan_cache.items():
+            # Update total penjualan
             cursor.execute(
                 "UPDATE penjualan SET total = %s WHERE id = %s",
                 (data["total"], data["id"])
             )
+            
+            # Ambil data lengkap penjualan untuk create piutang
+            cursor.execute("""
+                SELECT tanggal, id_customer, total, top 
+                FROM penjualan 
+                WHERE id = %s
+            """, (data["id"],))
+            
+            penjualan_data = cursor.fetchone()
+            
+            if penjualan_data:
+                tanggal_penjualan = penjualan_data[0]
+                id_cust = penjualan_data[1]
+                total_penjualan = float(penjualan_data[2])
+                top_value = penjualan_data[3]
+                
+                # Jika TOP > 0, buat piutang
+                if top_value and int(top_value) > 0:
+                    # Hitung due_date
+                    due_date = tanggal_penjualan + timedelta(days=int(top_value))
+                    
+                    # Cek apakah piutang sudah ada
+                    cursor.execute("""
+                        SELECT id FROM piutang 
+                        WHERE id_penjualan = %s
+                    """, (data["id"],))
+                    
+                    if not cursor.fetchone():
+                        # Insert piutang baru
+                        cursor.execute("""
+                            INSERT INTO piutang 
+                            (id_penjualan, no_nota, tanggal, due_date, id_customer, 
+                             total, terbayar, sisa, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, 0, %s, 'BELUM_LUNAS', CURDATE(), CURDATE())
+                        """, (
+                            data["id"],
+                            no_nota,
+                            tanggal_penjualan,
+                            due_date,
+                            id_cust,
+                            total_penjualan,
+                            total_penjualan  # sisa = total
+                        ))
 
         conn.commit()
         cursor.close()
@@ -1146,6 +1211,336 @@ def delete_penjualan(id_penjualan):
     finally:
         cursor.close()
         conn.close()
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# DATA PEMBELIAN
+# ================================================
+
+# Cek apakah sudah ada pembelian dengan no_nota, tanggal, dan supplier yang sama
+def get_existing_pembelian(no_nota, tanggal, id_supplier):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT id, total 
+        FROM pembelian 
+        WHERE no_nota = %s AND tanggal = %s AND id_supplier = %s
+        LIMIT 1
+    """
+    cursor.execute(query, (str(no_nota), tanggal, int(id_supplier)))
+    result = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    if result:
+        return {"id": result[0], "total": float(result[1])}
+    return None
+
+# Insert data pembelian
+def insert_pembelian(df, default_top=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    success_count = 0
+    errors = []
+
+    try:
+        conn.start_transaction()
+
+        pembelian_cache = {}
+        
+        for index, row in df.iterrows():
+            # ======================
+            # VALIDASI BARANG
+            # ======================
+            nama_barang = row.get('Keterangan Barang')
+            if pd.isna(nama_barang):
+                raise Exception(f"Baris {index + 2}: Nama barang kosong")
+
+            id_barang = get_barang_id(nama_barang)
+            if not id_barang:
+                raise Exception(f"Baris {index + 2}: Barang '{nama_barang}' tidak ditemukan")
+
+            # ======================
+            # DATA HEADER
+            # ======================
+            no_nota = row.get('No. Faktur')
+            tanggal = row.get('Tgl Faktur')
+            nama_pelanggan = row.get('Nama Pelanggan')
+
+            if pd.isna(no_nota) or pd.isna(tanggal):
+                raise Exception(f"Baris {index + 2}: No nota atau tanggal kosong")
+
+            id_supplier = None
+            if not pd.isna(nama_pelanggan):
+                id_supplier = get_supplier_id(nama_pelanggan)
+                if not id_supplier:
+                    raise Exception(f"Baris {index + 2}: Customer '{nama_pelanggan}' tidak ditemukan")
+                
+            # TOP → prioritas DataFrame → fallback ke default
+            top = row.get("TOP") if "TOP" in df.columns else default_top
+
+            # ======================
+            # CEK DATABASE DULU (UNTUK INPUT MANUAL)
+            # ======================
+            if no_nota not in pembelian_cache:
+                # Cek apakah transaksi sudah ada di database
+                cursor.execute("""
+                    SELECT id, total 
+                    FROM pembelian 
+                    WHERE no_nota = %s AND tanggal = %s AND id_supplier = %s
+                    LIMIT 1
+                """, (str(no_nota), tanggal, id_supplier))
+                
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Transaksi sudah ada di database, gunakan yang ada
+                    pembelian_cache[no_nota] = {
+                        "id": existing[0],
+                        "total": float(existing[1])
+                    }
+                else:
+                    # Transaksi belum ada, buat baru
+                    query_pembelian = """
+                    INSERT INTO pembelian (no_nota, tanggal, id_supplier, total, top)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(
+                        query_pembelian,
+                        (
+                            str(no_nota),
+                            tanggal,
+                            id_supplier,
+                            0,          # total diupdate belakangan
+                            top
+                        )
+                    )
+                    id_pembelian = cursor.lastrowid
+                    pembelian_cache[no_nota] = {
+                        "id": id_pembelian,
+                        "total": 0
+                    }
+
+            # Ambil id_pembelian dari cache
+            id_pembelian = pembelian_cache[no_nota]["id"]
+
+            # ======================
+            # DETAIL PEMBELIAN
+            # ======================
+            kuantitas = row.get("Kuantitas")
+            jumlah = row.get("Jumlah")
+            harga_satuan = row.get("Harga Satuan")
+
+            if pd.isna(kuantitas):
+                raise Exception(f"Baris {index+2}: Kuantitas tidak valid")
+
+            kuantitas = int(kuantitas)
+
+            # LOGIKA HARGA SATUAN
+            if not pd.isna(harga_satuan):
+                harga_satuan = float(harga_satuan)
+                subtotal = kuantitas * harga_satuan
+            else:
+                if pd.isna(jumlah):
+                    raise Exception(f"Baris {index+2}: Jumlah kosong")
+                subtotal = float(jumlah)
+                harga_satuan = subtotal / kuantitas
+
+            # ======================
+            # CEK APAKAH BARANG SUDAH ADA DI DETAIL
+            # ======================
+            cursor.execute("""
+                SELECT id, kuantitas, subtotal 
+                FROM pembelian_detail 
+                WHERE id_pembelian = %s AND id_barang = %s
+                LIMIT 1
+            """, (id_pembelian, id_barang))
+            
+            existing_detail = cursor.fetchone()
+            
+            if existing_detail:
+                # Barang sudah ada, UPDATE kuantitas dan subtotal
+                detail_id = existing_detail[0]
+                old_kuantitas = existing_detail[1]
+                old_subtotal = float(existing_detail[2])
+                
+                new_kuantitas = old_kuantitas + kuantitas
+                new_subtotal = old_subtotal + subtotal
+                
+                query_update = """
+                UPDATE pembelian_detail
+                SET kuantitas = %s, subtotal = %s
+                WHERE id = %s
+                """
+                cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
+                
+                # Update total pembelian (tambah selisihnya aja)
+                pembelian_cache[no_nota]["total"] += subtotal
+                
+            else:
+                # Barang belum ada, INSERT baru
+                query_detail = """
+                INSERT INTO pembelian_detail
+                (id_pembelian, id_barang, kuantitas, harga_satuan, subtotal)
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                cursor.execute(
+                    query_detail,
+                    (id_pembelian, id_barang, kuantitas, harga_satuan, subtotal)
+                )
+                
+                pembelian_cache[no_nota]["total"] += subtotal
+
+            success_count += 1
+
+        # ======================
+        # UPDATE TOTAL PEMBELIAN & CREATE PIUTANG
+        # ======================
+        for no_nota, data in pembelian_cache.items():
+            # Update total pembelian
+            cursor.execute(
+                "UPDATE pembelian SET total = %s WHERE id = %s",
+                (data["total"], data["id"])
+            )
+            
+            # Ambil data lengkap pembelian untuk create hutang
+            cursor.execute("""
+                SELECT tanggal, id_supplier, total, top 
+                FROM pembelian 
+                WHERE id = %s
+            """, (data["id"],))
+            
+            pembelian_data = cursor.fetchone()
+            
+            if pembelian_data:
+                tanggal_pembelian = pembelian_data[0]
+                id_cust = pembelian_data[1]
+                total_pembelian = float(pembelian_data[2])
+                top_value = pembelian_data[3]
+                
+                # Jika TOP > 0, buat hutang
+                if top_value and int(top_value) > 0:
+                    # Hitung due_date
+                    due_date = tanggal_pembelian + timedelta(days=int(top_value))
+                    
+                    # Cek apakah hutang sudah ada
+                    cursor.execute("""
+                        SELECT id FROM hutang 
+                        WHERE id_pembelian = %s
+                    """, (data["id"],))
+                    
+                    if not cursor.fetchone():
+                        # Insert hutang baru
+                        cursor.execute("""
+                            INSERT INTO hutang 
+                            (id_pembelian, no_nota, tanggal, due_date, id_supplier, 
+                             total, terbayar, sisa, status, created_at, updated_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, 0, %s, 'BELUM_LUNAS', CURDATE(), CURDATE())
+                        """, (
+                            data["id"],
+                            no_nota,
+                            tanggal_pembelian,
+                            due_date,
+                            id_cust,
+                            total_pembelian,
+                            total_pembelian  # sisa = total
+                        ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return success_count, 0, []
+
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        errors.append(str(e))
+        return 0, df.shape[0], errors
+
+# Ambil daftar tanggal transaksi
+def get_pembelian_dates():
+    conn = get_connection()
+    query = """
+        SELECT DISTINCT DATE(tanggal) AS tanggal
+        FROM pembelian
+        ORDER BY tanggal DESC
+    """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df['tanggal'].tolist()
+
+# Ambil data pembelian
+def get_data_pembelian(tanggal=None, supplier=None, barang=None):
+    conn = get_connection()
+
+    query = """
+        SELECT
+            p.id,
+            p.no_nota,
+            p.tanggal,
+            c.nama AS nama_supplier,
+            b.nama AS nama_barang,
+            pd.kuantitas,
+            pd.subtotal,
+            p.total AS total_nota,
+            p.top AS top
+        FROM pembelian p
+        JOIN pembelian_detail pd ON p.id = pd.id_pembelian
+        JOIN barang b ON pd.id_barang = b.id
+        LEFT JOIN supplier s ON p.id_supplier = c.id
+        WHERE 1=1
+    """
+
+    params = []
+
+    if tanggal:
+        query += " AND DATE(p.tanggal) = %s"
+        params.append(tanggal)
+
+    if supplier and supplier != "Semua":
+        query += " AND c.nama = %s"
+        params.append(supplier)
+
+    if barang and barang != "Semua":
+        query += " AND b.nama = %s"
+        params.append(barang)
+
+    query += " ORDER BY p.tanggal DESC, p.no_nota DESC"
+
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+# Hapus pembelian
+def delete_pembelian(id_pembelian):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "DELETE FROM pembelian_detail WHERE id_pembelian = %s",
+            (int(id_pembelian),)
+        )
+        cursor.execute(
+            "DELETE FROM pembelian WHERE id = %s",
+            (int(id_pembelian),)
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 
@@ -1439,3 +1834,565 @@ def process_pembayaran(jenis, id_ref, tanggal_bayar, jumlah_bayar, metode, refer
     finally:
         cursor.close()
         conn.close()
+
+
+
+
+
+
+
+
+
+
+# ================================================
+# MODUL PEMBAYARAN & ANALISIS (FIXED STRUCTURE)
+# ================================================
+
+def get_outstanding_invoices(jenis, id_partner=None):
+    """
+    Mengambil daftar invoice yang belum lunas (sisa > 0)
+    beserta nama customer/supplier-nya.
+    """
+    conn = get_connection()
+    
+    # Tentukan tabel target
+    table = "piutang" if jenis == "piutang" else "hutang"
+    col_partner_id = "id_customer" if jenis == "piutang" else "id_supplier"
+    table_partner = "customer" if jenis == "piutang" else "supplier"
+    
+    # Query dengan JOIN untuk ambil nama partner
+    query = f"""
+        SELECT 
+            t.id, 
+            t.no_nota, 
+            t.total, 
+            t.terbayar, 
+            t.sisa, 
+            t.due_date, 
+            p.nama as partner_name
+        FROM {table} t
+        JOIN {table_partner} p ON t.{col_partner_id} = p.id
+        WHERE t.sisa > 0
+    """
+    params = []
+    
+    if id_partner:
+        query += f" AND t.{col_partner_id} = %s"
+        params.append(id_partner)
+        
+    query += " ORDER BY t.due_date ASC"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+def insert_pembayaran(jenis, id_ref, tanggal, jumlah, metode, referensi, keterangan):
+    """
+    Mencatat pembayaran baru. 
+    Perubahan: Kolom 'metode' dan 'referensi' digabung ke 'keterangan' karena tidak ada di DB.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        conn.start_transaction()
+        
+        table_bayar = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
+        table_parent = "piutang" if jenis == "piutang" else "hutang"
+        col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
+        
+        # 1. Generate No Pembayaran (Disimpan di kolom 'no_invoice' pada tabel pembayaran)
+        prefix = "PAY-IN" if jenis == "piutang" else "PAY-OUT"
+        date_str = pd.to_datetime(tanggal).strftime('%Y%m%d')
+        
+        # Hitung urutan hari ini
+        cursor.execute(f"SELECT COUNT(*) FROM {table_bayar} WHERE tanggal_bayar = %s", (tanggal,))
+        count = cursor.fetchone()[0] + 1
+        no_pembayaran = f"{prefix}/{date_str}/{count:03d}"
+        
+        # 2. Format Keterangan (Gabung info metode & referensi)
+        # Karena kolom metode_bayar & no_referensi tidak ada di struktur_db.sql
+        full_keterangan = f"{keterangan} [Metode: {metode}, Ref: {referensi}]" if keterangan else f"[Metode: {metode}, Ref: {referensi}]"
+        
+        # Potong jika kepanjangan (max 255 sesuai DB)
+        if len(full_keterangan) > 255:
+            full_keterangan = full_keterangan[:255]
+
+        # 3. Insert ke Tabel Pembayaran
+        # Perubahan kolom: no_pembayaran -> no_invoice, jumlah_bayar -> jumlah
+        q_insert = f"""
+            INSERT INTO {table_bayar} 
+            ({col_ref}, no_invoice, tanggal_bayar, jumlah, keterangan, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        # created_at diisi tanggal hari ini
+        created_at = datetime.now().strftime('%Y-%m-%d')
+        
+        cursor.execute(q_insert, (id_ref, no_pembayaran, tanggal, jumlah, full_keterangan, created_at))
+        
+        # 4. Update Saldo di Tabel Parent (Piutang/Hutang)
+        q_update = f"""
+            UPDATE {table_parent}
+            SET terbayar = terbayar + %s,
+                sisa = sisa - %s,
+                status = CASE WHEN (sisa - %s) <= 0 THEN 'LUNAS' ELSE 'BELUM_LUNAS' END
+            WHERE id = %s
+        """
+        cursor.execute(q_update, (jumlah, jumlah, jumlah, id_ref))
+        
+        conn.commit()
+        return True, f"Pembayaran {no_pembayaran} berhasil disimpan"
+        
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_history_pembayaran(jenis, start_date=None, end_date=None):
+    """
+    Mengambil riwayat pembayaran.
+    Perbaikan: Menyesuaikan nama kolom dengan struktur_db.sql
+    """
+    conn = get_connection()
+    table_bayar = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
+    table_parent = "piutang" if jenis == "piutang" else "hutang"
+    col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
+    table_partner = "customer" if jenis == "piutang" else "supplier"
+    col_partner_id = "id_customer" if jenis == "piutang" else "id_supplier"
+    
+    # Perubahan Query: 
+    # - pb.no_invoice AS no_pembayaran (karena DB pakai nama no_invoice)
+    # - pb.jumlah AS jumlah_bayar
+    # - Hapus pb.metode_bayar (karena tidak ada di DB)
+    query = f"""
+        SELECT 
+            pb.id,
+            pb.no_invoice as no_pembayaran, 
+            pb.tanggal_bayar,
+            p.no_nota as no_invoice_tagihan,
+            part.nama as partner,
+            pb.jumlah as jumlah_bayar,
+            pb.keterangan
+        FROM {table_bayar} pb
+        JOIN {table_parent} p ON pb.{col_ref} = p.id
+        JOIN {table_partner} part ON p.{col_partner_id} = part.id
+        WHERE 1=1
+    """
+    params = []
+    
+    if start_date and end_date:
+        query += " AND pb.tanggal_bayar BETWEEN %s AND %s"
+        params.append(start_date)
+        params.append(end_date)
+        
+    query += " ORDER BY pb.tanggal_bayar DESC, pb.id DESC"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+def delete_pembayaran(jenis, id_pembayaran):
+    """
+    Menghapus data pembayaran dan MENGEMBALIKAN saldo invoice.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        conn.start_transaction()
+        
+        table_bayar = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
+        table_parent = "piutang" if jenis == "piutang" else "hutang"
+        col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
+        
+        # 1. Ambil info pembayaran sebelum dihapus
+        # Perubahan: jumlah_bayar -> jumlah
+        cursor.execute(f"SELECT {col_ref}, jumlah FROM {table_bayar} WHERE id = %s", (id_pembayaran,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise Exception("Data pembayaran tidak ditemukan")
+            
+        id_ref, jumlah = row
+        
+        # 2. Hapus Pembayaran
+        cursor.execute(f"DELETE FROM {table_bayar} WHERE id = %s", (id_pembayaran,))
+        
+        # 3. Revert Saldo Parent
+        q_revert = f"""
+            UPDATE {table_parent}
+            SET terbayar = terbayar - %s,
+                sisa = sisa + %s,
+                status = 'BELUM_LUNAS'
+            WHERE id = %s
+        """
+        cursor.execute(q_revert, (jumlah, jumlah, id_ref))
+        
+        conn.commit()
+        return True, "Pembayaran berhasil dihapus dan saldo dikembalikan"
+        
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_analisis_summary(jenis):
+    """
+    Mengambil data ringkasan untuk Dashboard.
+    """
+    conn = get_connection()
+    table = "piutang" if jenis == "piutang" else "hutang"
+    
+    q_summary = f"""
+        SELECT 
+            COUNT(*) as total_inv,
+            COALESCE(SUM(total), 0) as total_nominal,
+            COALESCE(SUM(sisa), 0) as sisa_outstanding
+        FROM {table}
+        WHERE sisa > 0
+    """
+    
+    # Overdue logic
+    q_overdue = f"""
+        SELECT COUNT(*) as count, COALESCE(SUM(sisa), 0) as nominal 
+        FROM {table} 
+        WHERE status = 'OVERDUE' OR (sisa > 0 AND due_date < CURDATE())
+    """
+    
+    summary = pd.read_sql(q_summary, conn).iloc[0]
+    overdue = pd.read_sql(q_overdue, conn).iloc[0]
+    
+    conn.close()
+    return summary, overdue
+
+# ================================================
+# AUTO-CREATE PIUTANG DARI PENJUALAN
+# ================================================
+
+def create_piutang_from_penjualan(id_penjualan, no_nota, tanggal, id_customer, total, top):
+    """
+    Membuat record piutang otomatis dari transaksi penjualan.
+    Dipanggil otomatis saat insert_penjualan jika TOP > 0.
+    
+    Args:
+        id_penjualan: ID dari tabel penjualan
+        no_nota: Nomor nota penjualan
+        tanggal: Tanggal transaksi
+        id_customer: ID customer
+        total: Total nilai penjualan
+        top: Term of Payment dalam hari
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Hitung due_date berdasarkan TOP
+        due_date = tanggal + timedelta(days=int(top))
+        
+        # Cek apakah piutang sudah ada (untuk prevent duplikasi)
+        cursor.execute("""
+            SELECT id FROM piutang 
+            WHERE id_penjualan = %s
+            LIMIT 1
+        """, (id_penjualan,))
+        
+        existing = cursor.fetchone()
+        
+        if not existing:
+            # Insert piutang baru
+            query = """
+                INSERT INTO piutang 
+                (id_penjualan, no_nota, tanggal, due_date, id_customer, total, terbayar, sisa, status, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, 0, %s, 'BELUM_LUNAS', CURDATE(), CURDATE())
+            """
+            cursor.execute(query, (
+                id_penjualan, 
+                no_nota, 
+                tanggal, 
+                due_date, 
+                id_customer, 
+                total, 
+                total  # sisa = total pada awalnya
+            ))
+            
+            conn.commit()
+            return True, "Piutang berhasil dibuat"
+        else:
+            return True, "Piutang sudah ada"
+            
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+# ================================================
+# INSERT PEMBAYARAN PIUTANG (SESUAI STRUKTUR DB)
+# ================================================
+
+def insert_pembayaran_piutang(id_piutang, no_invoice, tanggal_bayar, jumlah, keterangan):
+    """
+    Insert pembayaran piutang baru sesuai struktur database.
+    PERBAIKAN: SELALU INSERT, TIDAK PERNAH UPDATE.
+    Jika ada pembayaran di tanggal yang sama, tetap insert sebagai record terpisah.
+    
+    Args:
+        id_piutang: ID dari tabel piutang (bukan id_penjualan)
+        no_invoice: Nomor invoice pembayaran
+        tanggal_bayar: Tanggal pembayaran dilakukan
+        jumlah: Jumlah yang dibayarkan
+        keterangan: Catatan/keterangan pembayaran
+    
+    Returns:
+        Tuple (success: bool, message: str)
+    
+    Called by: input_pelunasan_piutang.py (Tab Input Manual)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        conn.start_transaction()
+        
+        # created_at otomatis ambil tanggal hari ini
+        created_at = datetime.now().strftime('%Y-%m-%d')
+        
+        # PENTING: Tidak ada pengecekan existing data
+        # Langsung INSERT sebagai record baru
+        
+        # 1. Insert ke tabel pembayaran_piutang (SELALU INSERT BARU)
+        query_insert = """
+            INSERT INTO pembayaran_piutang 
+            (id_piutang, no_invoice, tanggal_bayar, jumlah, keterangan, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(query_insert, (
+            int(id_piutang),
+            no_invoice,
+            tanggal_bayar,
+            float(jumlah),
+            keterangan if keterangan else None,
+            created_at
+        ))
+        
+        # Ambil ID pembayaran yang baru di-insert
+        id_pembayaran_baru = cursor.lastrowid
+        
+        # 2. Update saldo di tabel piutang (akumulatif)
+        query_update = """
+            UPDATE piutang
+            SET terbayar = terbayar + %s,
+                sisa = sisa - %s,
+                status = CASE 
+                    WHEN (sisa - %s) <= 0 THEN 'LUNAS'
+                    WHEN (sisa - %s) > 0 AND due_date < CURDATE() THEN 'OVERDUE'
+                    ELSE 'BELUM_LUNAS'
+                END,
+                updated_at = CURDATE()
+            WHERE id = %s
+        """
+        
+        cursor.execute(query_update, (
+            float(jumlah),  # terbayar + jumlah
+            float(jumlah),  # sisa - jumlah
+            float(jumlah),  # untuk pengecekan status LUNAS
+            float(jumlah),  # untuk pengecekan status OVERDUE
+            int(id_piutang)
+        ))
+        
+        # Cek apakah update berhasil
+        if cursor.rowcount == 0:
+            raise Exception("Data piutang tidak ditemukan atau sudah lunas")
+        
+        conn.commit()
+        
+        return True, f"Pembayaran #{id_pembayaran_baru} sebesar Rp {jumlah:,.0f} berhasil disimpan"
+        
+    except Exception as e:
+        conn.rollback()
+        return False, f"Gagal menyimpan pembayaran: {str(e)}"
+        
+    finally:
+        cursor.close()
+        conn.close()
+
+
+import mysql.connector
+import pandas as pd
+import streamlit as st # Diperlukan untuk decorator cache
+
+# ... (Kode get_connection yang sudah ada sebelumnya biarkan saja) ...
+
+# ================================================
+# MODUL GROSS PROFIT & ANALISIS
+# ================================================
+
+@st.cache_data(ttl=300)
+def get_pembelian_data(start_date=None, end_date=None):
+    """Mengambil data pembelian detail"""
+    conn = get_connection()
+    query = """
+    SELECT 
+        pd.id,
+        p.tanggal,
+        p.no_nota,
+        pd.id_barang,
+        b.nama as nama_barang,
+        pd.kuantitas,
+        pd.harga_satuan,
+        pd.subtotal,
+        p.tipe
+    FROM pembelian_detail pd
+    JOIN pembelian p ON pd.id_pembelian = p.id
+    JOIN barang b ON pd.id_barang = b.id
+    """
+    
+    if start_date and end_date:
+        query += f" WHERE p.tanggal BETWEEN '{start_date}' AND '{end_date}'"
+    
+    query += " ORDER BY p.tanggal, pd.id"
+    
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+@st.cache_data(ttl=300)
+def get_penjualan_data(start_date=None, end_date=None):
+    """Mengambil data penjualan detail"""
+    conn = get_connection()
+    query = """
+    SELECT 
+        pd.id,
+        p.tanggal,
+        p.no_nota,
+        pd.id_barang,
+        b.nama as nama_barang,
+        pd.kuantitas,
+        pd.harga_satuan,
+        pd.subtotal
+    FROM penjualan_detail pd
+    JOIN penjualan p ON pd.id_penjualan = p.id
+    JOIN barang b ON pd.id_barang = b.id
+    """
+    
+    if start_date and end_date:
+        query += f" WHERE p.tanggal BETWEEN '{start_date}' AND '{end_date}'"
+    
+    query += " ORDER BY p.tanggal, pd.id"
+    
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+@st.cache_data(ttl=300)
+def get_barang_list_simple():
+    """Mengambil list nama barang saja untuk filter"""
+    conn = get_connection()
+    query = "SELECT id, nama FROM barang ORDER BY nama"
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
+    """
+    Menghitung gross profit menggunakan metode FIFO
+    Memperhitungkan bahwa ongkir dicatat sebagai baris terpisah setelah barang
+    """
+    results = []
+    
+    # Grup barang unik
+    barang_ids = penjualan_df['id_barang'].unique()
+    
+    for barang_id in barang_ids:
+        # Filter pembelian dan penjualan untuk barang ini
+        pembelian_barang = pembelian_df[pembelian_df['id_barang'] == barang_id].copy()
+        penjualan_barang = penjualan_df[penjualan_df['id_barang'] == barang_id].copy()
+        
+        if pembelian_barang.empty or penjualan_barang.empty:
+            continue
+        
+        # Proses pembelian untuk menggabungkan harga barang + ongkir
+        # Asumsi: baris barang diikuti ongkir (tipe berbeda, nama sama)
+        pembelian_processed = []
+        i = 0
+        while i < len(pembelian_barang):
+            row = pembelian_barang.iloc[i]
+            
+            # Cek apakah ada baris berikutnya dengan nama sama tapi tipe berbeda (ongkir)
+            ongkir = 0
+            if i + 1 < len(pembelian_barang):
+                next_row = pembelian_barang.iloc[i + 1]
+                # Cek jika baris berikutnya adalah ongkir (nama sama, no_nota sama)
+                if (next_row['nama_barang'] == row['nama_barang'] and 
+                    next_row['no_nota'] == row['no_nota'] and
+                    row['tipe'] != next_row['tipe']):
+                    ongkir = float(next_row['subtotal'])
+                    i += 1  # Skip baris ongkir
+            
+            # Hitung harga per unit termasuk ongkir
+            total_cost = float(row['subtotal']) + ongkir
+            unit_cost = total_cost / float(row['kuantitas']) if row['kuantitas'] > 0 else 0
+            
+            pembelian_processed.append({
+                'tanggal': row['tanggal'],
+                'no_nota': row['no_nota'],
+                'kuantitas': float(row['kuantitas']),
+                'harga_per_unit': unit_cost,
+                'total_cost': total_cost,
+                'kuantitas_sisa': float(row['kuantitas'])
+            })
+            i += 1
+        
+        # FIFO calculation
+        total_penjualan = 0
+        total_hpp = 0
+        purchase_queue = pembelian_processed.copy()
+        
+        for _, penjualan in penjualan_barang.iterrows():
+            qty_terjual = float(penjualan['kuantitas'])
+            harga_jual = float(penjualan['harga_satuan'])
+            
+            total_penjualan += qty_terjual * harga_jual
+            
+            # Alokasi HPP menggunakan FIFO
+            qty_remaining = qty_terjual
+            
+            while qty_remaining > 0 and purchase_queue:
+                oldest_purchase = purchase_queue[0]
+                
+                if oldest_purchase['kuantitas_sisa'] >= qty_remaining:
+                    # Pembelian ini cukup untuk memenuhi penjualan
+                    hpp = qty_remaining * oldest_purchase['harga_per_unit']
+                    total_hpp += hpp
+                    oldest_purchase['kuantitas_sisa'] -= qty_remaining
+                    qty_remaining = 0
+                    
+                    if oldest_purchase['kuantitas_sisa'] == 0:
+                        purchase_queue.pop(0)
+                else:
+                    # Pembelian ini tidak cukup, ambil semua dan lanjut ke pembelian berikutnya
+                    hpp = oldest_purchase['kuantitas_sisa'] * oldest_purchase['harga_per_unit']
+                    total_hpp += hpp
+                    qty_remaining -= oldest_purchase['kuantitas_sisa']
+                    purchase_queue.pop(0)
+        
+        gross_profit = total_penjualan - total_hpp
+        margin = (gross_profit / total_penjualan * 100) if total_penjualan > 0 else 0
+        
+        results.append({
+            'id_barang': barang_id,
+            'nama_barang': penjualan_barang.iloc[0]['nama_barang'],
+            'total_penjualan': total_penjualan,
+            'total_hpp': total_hpp,
+            'gross_profit': gross_profit,
+            'margin_persen': margin,
+            'qty_terjual': penjualan_barang['kuantitas'].sum()
+        })
+    
+    return pd.DataFrame(results)
