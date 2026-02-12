@@ -143,7 +143,7 @@ with tab1:
                         # created_at akan di-handle di function insert
                         success, msg = new_database.insert_pembayaran_piutang(
                             id_piutang=id_piutang_selected,
-                            no_invoice=no_invoice_bayar if no_invoice_bayar else f"PAY-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                            no_invoice=no_invoice_bayar if no_invoice_bayar else None,
                             tanggal_bayar=tanggal_bayar,
                             jumlah=jumlah_bayar,
                             keterangan=keterangan
