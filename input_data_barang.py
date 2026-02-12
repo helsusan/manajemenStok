@@ -69,7 +69,7 @@ with tab1:
                 if new_database.check_barang_available(nama_barang_baru):
                     st.warning(f"⚠️ Barang '{nama_barang_baru}' sudah ada di database!")
                 else:
-                    success, message = new_database.insert_barang(nama_barang_baru)
+                    success, message = new_database.insert_barang(nama_barang_baru.upper())
 
                     if success:
                         st.session_state.manual_success = message
@@ -150,6 +150,10 @@ with tab2:
 
             # Ambil hanya kolom yang relevan dan rename ke standar
             df = df[available_cols].rename(columns=rename_map)
+
+            # Paksa nama jadi uppercase
+            if "Nama" in df.columns:
+                df["Nama"] = df["Nama"].astype(str).str.upper()
             
             # Hapus baris yang kosong total
             df = df.dropna(how="all")
@@ -295,13 +299,24 @@ with tab3:
                                     row = df_barang.iloc[index].to_dict()
                                     row.update(new_values)
 
+                                    # Bersihkan nilai NaN menjadi None agar tidak error di MySQL
+                                    p_val = row.get('p')
+                                    d_val = row.get('d')
+                                    q_val = row.get('q')
+
+                                    # Helper sederhana untuk ubah NaN jadi None
+                                    def clean_nan(val):
+                                        if pd.isna(val) or val == "":
+                                            return None
+                                        return val
+
                                     new_database.update_barang(
                                         int(row['id']),
-                                        row['nama'],
+                                        str(row['nama']).upper(), # UPDATED: Force Uppercase saat edit
                                         row['model_prediksi'],
-                                        row['p'],
-                                        row['d'],
-                                        row['q']
+                                        clean_nan(p_val), # UPDATED: Bersihkan NaN
+                                        clean_nan(d_val), # UPDATED: Bersihkan NaN
+                                        clean_nan(q_val)  # UPDATED: Bersihkan NaN
                                     )
 
                             # 3️⃣ TAMBAH DATA
