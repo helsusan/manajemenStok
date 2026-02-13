@@ -27,6 +27,9 @@ if "upload_success" not in st.session_state:
 if "edit_success" not in st.session_state:
     st.session_state.edit_success = False
 
+if "pricelist_edit_success" not in st.session_state:
+    st.session_state.pricelist_edit_success = False
+
 # State untuk menyimpan pricelist sementara di Tab 1
 if "temp_pricelist" not in st.session_state:
     st.session_state.temp_pricelist = []
@@ -35,7 +38,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📝 Input Manual",
     "📤 Upload Excel", 
     "🏢 Daftar Supplier",
-    "💰 Daftar Pricelist"
+    "🏷️ Daftar Pricelist"
 ])
 
 current_tab = (
@@ -49,6 +52,7 @@ if st.session_state.active_tab != current_tab:
     st.session_state.manual_success = False
     st.session_state.upload_success = False
     st.session_state.edit_success = False
+    st.session_state.pricelist_edit_success = False
     st.session_state.temp_pricelist = []
     st.session_state.active_tab = current_tab
 
@@ -61,7 +65,7 @@ with tab1:
 
     mode = st.radio(
         "Pilih Mode Input:",
-        ["🏢 Supplier Baru", "💰 Tambah Pricelist ke Supplier"],
+        ["🏢 Supplier Baru", "🏷️ Tambah Pricelist ke Supplier"],
         horizontal=True,
         key="input_mode"
     )
@@ -86,6 +90,10 @@ with tab1:
         
         else:  # Mode: Tambah ke existing supplier
             df_suppliers = new_database.get_all_data_supplier(["id", "nama"])
+
+            # Urutkan abjad
+            if not df_suppliers.empty:
+                df_suppliers = df_suppliers.sort_values("nama")
             
             if df_suppliers.empty:
                 st.warning("⚠️ Belum ada supplier di database. Silakan buat supplier baru terlebih dahulu.")
@@ -102,10 +110,17 @@ with tab1:
             nama_supplier_baru = None
     
     with col2:
-        st.markdown("### 💰 Pricelist")
+        st.markdown("### 🏷️ Pricelist")
+
+        # Inisialisasi variabel pesan warning
+        pricelist_error_msg = None
         
         # Ambil daftar barang untuk dropdown
         df_barang = new_database.get_all_data_barang(["id", "nama"])
+        
+        # Urutkan abjad
+        if not df_barang.empty:
+            df_barang = df_barang.sort_values("nama")
         
         if not df_barang.empty:
             col_barang, col_harga, col_btn = st.columns([3, 2, 1])
@@ -132,14 +147,13 @@ with tab1:
                         # Cek duplikasi
                         exists = any(p["barang"] == selected_barang for p in st.session_state.temp_pricelist)
                         if exists:
-                            st.warning(f"⚠️ Barang '{selected_barang}' sudah ada di pricelist")
+                            pricelist_error_msg = f"⚠️ Barang '{selected_barang}' sudah ada di pricelist"
                         else:
                             # PERBAIKAN 1: Cek apakah sudah ada di database (untuk mode tambah ke existing supplier)
-                            if mode == "📝 Tambah Pricelist ke Supplier" and selected_supplier_id:
+                            if mode == "🏷️ Tambah Pricelist ke Supplier" and selected_supplier_id:
                                 id_barang = new_database.get_barang_id(selected_barang)
-                                if new_database.check_cust_pricelist_exists(selected_supplier_id, id_barang):
-                                    st.error(f"❌ Pricelist untuk barang '{selected_barang}' sudah ada di database!")
-                                    st.info("💡 Silakan edit harga di tab **Daftar Pricelist**")
+                                if new_database.check_supp_pricelist_exists(selected_supplier_id, id_barang):
+                                    pricelist_error_msg = f"❌ Pricelist untuk barang '{selected_barang}' sudah ada di database!"
                                 else:
                                     st.session_state.temp_pricelist.append({
                                         "barang": selected_barang,
@@ -154,7 +168,14 @@ with tab1:
                                 })
                                 st.rerun()
                     else:
-                        st.error("❌ Harga harus lebih dari 0")
+                        pricelist_error_msg = "❌ Harga harus lebih dari 0"
+
+        # Jika ada error, tampilkan errornya
+        if pricelist_error_msg:
+            st.error(pricelist_error_msg)
+            # Jika errornya karena database, munculkan saran
+            if "database" in pricelist_error_msg:
+                st.info("💡 Silakan edit harga di tab **Daftar Pricelist**")
         
         # Tampilkan pricelist sementara
         if st.session_state.temp_pricelist:
@@ -229,7 +250,7 @@ with tab1:
                         id_barang = new_database.get_barang_id(item["barang"])
                         
                         # Cek apakah pricelist sudah ada
-                        existing = new_database.check_cust_pricelist_exists(selected_supplier_id, id_barang)
+                        existing = new_database.check_supp_pricelist_exists(selected_supplier_id, id_barang)
                         
                         if new_database.upsert_supplier_pricelist(selected_supplier_id, id_barang, item["harga"]):
                             if existing:
@@ -363,6 +384,13 @@ with tab2:
                                     error_count += 1
                                     errors.append(f"Baris {idx+1}: Barang '{barang}' tidak ditemukan")
                                     continue
+
+                                # Cek apakah data sama persis (Barang & Harga sudah ada)
+                                current_price = new_database.get_harga_supplier(nama, barang)
+                                if current_price is not None and float(current_price) == float(harga):
+                                    error_count += 1
+                                    errors.append(f"Baris {idx+1}: Data sudah ada di database (Harga sama: {int(harga)})")
+                                    continue
                                 
                                 if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(harga)):
                                     success_count += 1
@@ -444,6 +472,11 @@ with tab3:
     
     # Filter
     data_supplier = new_database.get_all_data_supplier(columns="nama")
+
+    # Urutkan abjad
+    if not data_supplier.empty:
+        data_supplier = data_supplier.sort_values("nama")
+
     supplier_options = ["Semua"] + data_supplier["nama"].tolist()
     
     search_supplier = st.selectbox(
@@ -466,6 +499,9 @@ with tab3:
             df_suppliers = df_suppliers[
                 df_suppliers["nama"].str.contains(search_supplier, case=False, na=False)
             ]
+
+        # Sort & Reset index agar urut abjad & kolom ID tidak muncul saat difilter
+        df_suppliers = df_suppliers.sort_values("nama").reset_index(drop=True)
 
         if df_suppliers.empty:
             st.warning("⚠️ Tidak ada supplier sesuai filter")
@@ -548,7 +584,7 @@ with tab3:
 # ================================================
 
 with tab4:
-    st.subheader("💰 Daftar Pricelist")
+    st.subheader("🏷️ Daftar Pricelist")
     
     with st.expander("ℹ️ Info edit & hapus pricelist"):
         st.write("""
@@ -561,6 +597,11 @@ with tab4:
     
     with col_filter1:
         data_supplier = new_database.get_all_data_supplier(columns="nama")
+
+        # Urutkan abjad
+        if not data_supplier.empty:
+            data_supplier = data_supplier.sort_values("nama")
+
         supplier_options = ["Semua"] + data_supplier["nama"].tolist()
         
         search_supplier = st.selectbox(
@@ -572,6 +613,11 @@ with tab4:
     
     with col_filter2:
         data_barang = new_database.get_all_data_barang(columns="nama")
+
+        # Urutkan abjad
+        if not data_barang.empty:
+            data_barang = data_barang.sort_values("nama")
+
         barang_options = ["Semua"] + data_barang["nama"].tolist()
 
         search_barang = st.selectbox(
@@ -596,6 +642,9 @@ with tab4:
         if search_barang != "Semua":
             df = df[df["barang"] == search_barang]
 
+        # Reset index agar kolom ID tetap tersembunyi & tampilan rapi
+        df = df.reset_index(drop=True)
+
         if df.empty:
             st.warning("⚠️ Tidak ada data sesuai filter")
             st.stop()
@@ -607,6 +656,12 @@ with tab4:
 
         # Prepare data untuk editing
         df_edit = df[["id_pricelist", "supplier", "barang", "harga", "updated_at"]].copy()
+
+        # Format angka harga menjadi string "Rp 20.000"
+        df_edit["harga"] = df_edit["harga"].apply(lambda x: f"Rp {int(x):,.0f}".replace(",", ".")).astype(str)
+
+        # Format tanggal jadi string agar csv tanpa time
+        df_edit["updated_at"] = pd.to_datetime(df_edit["updated_at"]).dt.strftime('%d/%m/%Y')
 
         column_config = {
             "id_pricelist": None,  # Hide ID
@@ -620,16 +675,14 @@ with tab4:
                 disabled=True,
                 width="medium"
             ),
-            "harga": st.column_config.NumberColumn(
+            "harga": st.column_config.TextColumn(
                 "Harga",
                 required=True,
-                format="Rp %d",
                 width="medium"
             ),
-            "updated_at": st.column_config.DatetimeColumn(
+            "updated_at": st.column_config.TextColumn(
                 "Update Terakhir",
                 disabled=True,
-                format="DD/MM/YYYY",
                 width="medium"
             )
         }
@@ -664,17 +717,20 @@ with tab4:
                             new_harga = new_values.get("harga")
                             
                             if new_harga is not None:
+                                # Bersihkan string "Rp" dan titik dari inputan user
+                                clean_harga = str(new_harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
+
                                 new_database.update_supplier_pricelist(id_pricelist, int(new_harga))
                 
-                st.session_state.edit_success = True
+                st.session_state.pricelist_edit_success = True
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Gagal menyimpan: {str(e)}")
 
-        if st.session_state.edit_success:
+        if st.session_state.pricelist_edit_success:
             st.success("✅ Perubahan berhasil disimpan!")
-            st.session_state.edit_success = False
+            st.session_state.pricelist_edit_success = False
 
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
