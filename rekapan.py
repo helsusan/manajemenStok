@@ -82,6 +82,9 @@ def show_aging_table(jenis):
     # Tampilkan Tabel
     # Kita tambahkan kolom 'partner_name' agar terlihat siapa yang berhutang/dihutangi
     display_cols = ['no_nota', 'partner_name', 'due_date', 'total', 'sisa', 'overdue_days', 'Status']
+
+    # Format tanggal
+    df['due_date'] = pd.to_datetime(df['due_date']).dt.strftime('%d %b %Y')
     
     # Rename kolom untuk tampilan agar lebih rapi
     df_display = df[display_cols].rename(columns={
