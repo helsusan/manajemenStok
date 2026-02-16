@@ -1275,19 +1275,22 @@ def insert_pembelian(df, default_top=None):
             # ======================
             no_nota = row.get('No. Faktur')
             tanggal = row.get('Tgl Faktur')
-            nama_pelanggan = row.get('Nama Pelanggan')
+            nama_supplier = row.get('Nama Supplier')
 
             if pd.isna(no_nota) or pd.isna(tanggal):
                 raise Exception(f"Baris {index + 2}: No nota atau tanggal kosong")
 
             id_supplier = None
-            if not pd.isna(nama_pelanggan):
-                id_supplier = get_supplier_id(nama_pelanggan)
+            if not pd.isna(nama_supplier):
+                id_supplier = get_supplier_id(nama_supplier)
                 if not id_supplier:
-                    raise Exception(f"Baris {index + 2}: Customer '{nama_pelanggan}' tidak ditemukan")
+                    raise Exception(f"Baris {index + 2}: Customer '{nama_supplier}' tidak ditemukan")
                 
             # TOP → prioritas DataFrame → fallback ke default
             top = row.get("TOP") if "TOP" in df.columns else default_top
+
+            # Ambil tipe (Barang/Ongkir)
+            tipe = row.get("Tipe", "Barang") # Default BARANG jika tidak ada
 
             # ======================
             # CEK DATABASE DULU (UNTUK INPUT MANUAL)
@@ -1312,8 +1315,8 @@ def insert_pembelian(df, default_top=None):
                 else:
                     # Transaksi belum ada, buat baru
                     query_pembelian = """
-                    INSERT INTO pembelian (no_nota, tanggal, id_supplier, total, top)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO pembelian (no_nota, tanggal, id_supplier, total, top, tipe)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """
                     cursor.execute(
                         query_pembelian,
@@ -1322,7 +1325,8 @@ def insert_pembelian(df, default_top=None):
                             tanggal,
                             id_supplier,
                             0,          # total diupdate belakangan
-                            top
+                            top,
+                            tipe
                         )
                     )
                     id_pembelian = cursor.lastrowid
