@@ -48,6 +48,10 @@ with tab1:
         )
         
         data_customer = new_database.get_all_data_customer(columns="nama")
+
+        if not data_customer.empty:
+            data_customer = data_customer.sort_values("nama")
+
         nama_customer = st.selectbox(
             "Nama Customer",
             options=data_customer["nama"].tolist(),
@@ -55,6 +59,10 @@ with tab1:
         )
         
         data_barang = new_database.get_all_data_barang(columns="nama")
+
+        if not data_barang.empty:
+            data_barang = data_barang.sort_values("nama")
+
         jenis_barang = st.selectbox(
             "Jenis Barang",
             options=data_barang["nama"].tolist(),
@@ -71,6 +79,10 @@ with tab1:
         )
         
         harga_satuan = new_database.get_harga_customer(nama_customer, jenis_barang)
+
+        if harga_satuan is None:
+            harga_satuan = 0
+
         st.text_input(
             "Harga Satuan",
             value=f"Rp {harga_satuan:,.0f}".replace(",", "."),
@@ -116,6 +128,46 @@ with tab1:
             st.stop()
 
         # ======================
+        # CEK VALIDASI NOTA & DUPLIKASI
+        # ======================
+        # Ambil data transaksi berdasarkan customer saja (agar bisa mengecek seluruh barang di nota tersebut)
+        df_existing = new_database.get_data_penjualan(
+            customer=nama_customer
+        )
+        
+        if not df_existing.empty:
+            # Bersihkan dan samakan tipe data
+            df_existing["no_nota_str"] = df_existing["no_nota"].astype(str).str.strip()
+            df_existing["tanggal_date"] = pd.to_datetime(df_existing["tanggal"]).dt.date
+            df_existing["qty_int"] = df_existing["kuantitas"].fillna(0).astype(int)
+            df_existing["top_int"] = df_existing["top"].fillna(0).astype(int)
+            
+            # Cari apakah Nota & Tanggal ini sudah ada di database
+            same_nota = df_existing[
+                (df_existing["no_nota_str"] == str(no_faktur).strip()) &
+                (df_existing["tanggal_date"] == tanggal)
+            ]
+            
+            if not same_nota.empty:
+                # 1️⃣ CEK KONSISTENSI TOP
+                # Ambil nilai TOP yang sudah tersimpan untuk nota ini
+                existing_top = same_nota.iloc[0]["top_int"]
+                
+                if existing_top != int(top):
+                    st.error(f"❌ Input Gagal: No Faktur '{no_faktur}' sudah tersimpan dengan TOP {existing_top} hari. Dalam 1 nota, TOP tidak boleh berbeda!")
+                    st.stop()
+                
+                # 2️⃣ CEK DUPLIKASI BARANG & QTY (Mencegah input dobel)
+                duplicate = same_nota[
+                    (same_nota["nama_barang"] == jenis_barang) &
+                    (same_nota["qty_int"] == int(kuantitas))
+                ]
+                
+                if not duplicate.empty:
+                    st.warning(f"⚠️ Transaksi untuk faktur {no_faktur} dengan barang {jenis_barang} (Qty: {kuantitas}) sudah pernah diinput!")
+                    st.stop()
+
+        # ======================
         # BENTUK DATAFRAME SESUAI INSERT_PENJUALAN
         # ======================
         df_input = pd.DataFrame([{
@@ -146,7 +198,7 @@ with tab2:
     
     with st.expander("ℹ️ Format file Excel data penjualan"):
         st.write("""
-        - Kolom wajib: `No Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
+        - Kolom wajib: `No. Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
         - Kolom opsional: `TOP`
         - Nama Barang dan Customer harus sudah ada di database
         """)
@@ -242,11 +294,19 @@ with tab3:
 
     with col2:
         data_customer = new_database.get_all_data_customer(columns="nama")
+
+        if not data_customer.empty:
+            data_customer = data_customer.sort_values("nama")
+
         customer_options = ["Semua"] + data_customer["nama"].tolist()
         selected_pelanggan = st.selectbox("👤 Nama Customer", customer_options)
 
     with col3:
         data_barang = new_database.get_all_data_barang(columns="nama")
+
+        if not data_barang.empty:
+            data_barang = data_barang.sort_values("nama")
+
         barang_options = ["Semua"] + data_barang["nama"].tolist()
         selected_barang = st.selectbox("📦 Nama Barang", barang_options)
 
