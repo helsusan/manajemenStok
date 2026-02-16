@@ -36,14 +36,14 @@ with tab1:
         available_piutang = new_database.get_outstanding_invoices("piutang", id_cust)
         
         if available_piutang.empty:
-            st.info("✅ Tidak ada invoice yang belum lunas untuk customer ini.")
+            st.info("✅ Tidak ada piutang yang belum lunas untuk customer ini.")
         else:
             # Tampilkan detail nota yang belum lunas
             st.markdown("### 📋 Daftar Nota Belum Lunas:")
 
             # Format invoice untuk dropdown
             available_piutang['display'] = available_piutang.apply(
-                lambda x: f"No. Nota: {x['no_nota']} | Total: Rp {x['total']:,.0f} | Terbayar: Rp {x['terbayar']:,.0f} | Sisa: Rp {x['sisa']:,.0f} | Jatuh Tempo: {x['due_date']}", axis=1
+                lambda x: f"No. Nota: {x['no_nota']} | Total: Rp {x['total']:,.0f} | Terbayar: Rp {x['terbayar']:,.0f} | Sisa: Rp {x['sisa']:,.0f} | Jatuh Tempo: {pd.to_datetime(x['due_date']).strftime('%d %b %Y')}", axis=1
             )
 
             # Dictionary mapping: display text -> id piutang
@@ -183,7 +183,7 @@ with tab2:
 
 # ================= TAB 3: RIWAYAT =================
 with tab3:
-    st.subheader("Riwayat & Pembatalan")
+    st.subheader("Riwayat Pembayaran Piutang")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -195,7 +195,7 @@ with tab3:
     
     if not df_hist.empty:
         # Format Dataframe
-        df_hist['tanggal_bayar'] = pd.to_datetime(df_hist['tanggal_bayar']).dt.strftime('%d-%m-%Y')
+        df_hist['tanggal_bayar'] = pd.to_datetime(df_hist['tanggal_bayar']).dt.strftime('%d %b %Y')
         df_hist['jumlah_bayar'] = df_hist['jumlah_bayar'].apply(lambda x: f"Rp {x:,.0f}")
         
         # Tambahkan kolom delete
@@ -204,8 +204,14 @@ with tab3:
         edited_df = st.data_editor(
             df_hist,
             column_config={
-                "Hapus": st.column_config.CheckboxColumn("Batal?", help="Centang untuk membatalkan pembayaran"),
+                "Hapus": st.column_config.CheckboxColumn("Hapus", help="Centang untuk menghapus pembayaran"),
                 "id": None, # Hide ID
+                "no_pembayaran": st.column_config.TextColumn("No. Invoice Pembayaran"),
+                "tanggal_bayar": st.column_config.TextColumn("Tanggal"),
+                "no_invoice_tagihan": st.column_config.TextColumn("No. Faktur Penjualan"),
+                "partner": st.column_config.TextColumn("Customer"),
+                "jumlah_bayar": st.column_config.TextColumn("Jumlah Bayar"),
+                "keterangan": st.column_config.TextColumn("Keterangan"),
             },
             hide_index=True,
             use_container_width=True
@@ -214,14 +220,14 @@ with tab3:
         # Logic Hapus
         to_delete = edited_df[edited_df['Hapus'] == True]
         if not to_delete.empty:
-            st.warning(f"⚠️ Anda akan membatalkan {len(to_delete)} pembayaran. Saldo invoice akan kembali bertambah.")
+            st.warning(f"⚠️ Anda akan menghapus {len(to_delete)} pembayaran. Saldo invoice akan kembali bertambah.")
             if st.button("🗑️ Konfirmasi Pembatalan"):
                 success_count = 0
                 for idx, row in to_delete.iterrows():
                     res, _ = new_database.delete_pembayaran("piutang", row['id'])
                     if res: success_count += 1
                 
-                st.success(f"✅ {success_count} pembayaran berhasil dibatalkan.")
+                st.success(f"✅ {success_count} pembayaran berhasil dihapus.")
                 st.rerun()
     else:
         st.info("Tidak ada riwayat pembayaran pada periode ini.")

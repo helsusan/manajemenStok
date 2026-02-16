@@ -1890,70 +1890,6 @@ def get_outstanding_invoices(jenis, id_partner=None):
     conn.close()
     return df
 
-def insert_pembayaran(jenis, id_ref, tanggal, jumlah, metode, referensi, keterangan):
-    """
-    Mencatat pembayaran baru. 
-    Perubahan: Kolom 'metode' dan 'referensi' digabung ke 'keterangan' karena tidak ada di DB.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        conn.start_transaction()
-        
-        table_bayar = "pembayaran_piutang" if jenis == "piutang" else "pembayaran_hutang"
-        table_parent = "piutang" if jenis == "piutang" else "hutang"
-        col_ref = "id_piutang" if jenis == "piutang" else "id_hutang"
-        
-        # 1. Generate No Pembayaran (Disimpan di kolom 'no_invoice' pada tabel pembayaran)
-        prefix = "PAY-IN" if jenis == "piutang" else "PAY-OUT"
-        date_str = pd.to_datetime(tanggal).strftime('%Y%m%d')
-        
-        # Hitung urutan hari ini
-        cursor.execute(f"SELECT COUNT(*) FROM {table_bayar} WHERE tanggal_bayar = %s", (tanggal,))
-        count = cursor.fetchone()[0] + 1
-        no_pembayaran = f"{prefix}/{date_str}/{count:03d}"
-        
-        # 2. Format Keterangan (Gabung info metode & referensi)
-        # Karena kolom metode_bayar & no_referensi tidak ada di struktur_db.sql
-        full_keterangan = f"{keterangan} [Metode: {metode}, Ref: {referensi}]" if keterangan else f"[Metode: {metode}, Ref: {referensi}]"
-        
-        # Potong jika kepanjangan (max 255 sesuai DB)
-        if len(full_keterangan) > 255:
-            full_keterangan = full_keterangan[:255]
-
-        # 3. Insert ke Tabel Pembayaran
-        # Perubahan kolom: no_pembayaran -> no_invoice, jumlah_bayar -> jumlah
-        q_insert = f"""
-            INSERT INTO {table_bayar} 
-            ({col_ref}, no_invoice, tanggal_bayar, jumlah, keterangan, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        # created_at diisi tanggal hari ini
-        created_at = datetime.now().strftime('%Y-%m-%d')
-        
-        cursor.execute(q_insert, (id_ref, no_pembayaran, tanggal, jumlah, full_keterangan, created_at))
-        
-        # 4. Update Saldo di Tabel Parent (Piutang/Hutang)
-        q_update = f"""
-            UPDATE {table_parent}
-            SET terbayar = terbayar + %s,
-                sisa = sisa - %s,
-                status = CASE WHEN (sisa - %s) <= 0 THEN 'LUNAS' ELSE 'BELUM_LUNAS' END
-            WHERE id = %s
-        """
-        cursor.execute(q_update, (jumlah, jumlah, jumlah, id_ref))
-        
-        conn.commit()
-        return True, f"Pembayaran {no_pembayaran} berhasil disimpan"
-        
-    except Exception as e:
-        conn.rollback()
-        return False, str(e)
-    finally:
-        cursor.close()
-        conn.close()
-
 def get_history_pembayaran(jenis, start_date=None, end_date=None):
     """
     Mengambil riwayat pembayaran.
@@ -2226,6 +2162,76 @@ def insert_pembayaran_piutang(id_piutang, no_invoice, tanggal_bayar, jumlah, ket
         cursor.close()
         conn.close()
 
+def insert_pembayaran_hutang(id_hutang, no_invoice, tanggal_bayar, jumlah, keterangan):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        conn.start_transaction()
+        
+        # created_at otomatis ambil tanggal hari ini
+        created_at = datetime.now().strftime('%Y-%m-%d')
+        
+        # PENTING: Tidak ada pengecekan existing data
+        # Langsung INSERT sebagai record baru
+        
+        # 1. Insert ke tabel pembayaran_hutang (SELALU INSERT BARU)
+        query_insert = """
+            INSERT INTO pembayaran_hutang
+            (id_hutang, no_invoice, tanggal_bayar, jumlah, keterangan, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(query_insert, (
+            int(id_hutang),
+            no_invoice,
+            tanggal_bayar,
+            float(jumlah),
+            keterangan if keterangan else None,
+            created_at
+        ))
+        
+        # Ambil ID pembayaran yang baru di-insert
+        id_pembayaran_baru = cursor.lastrowid
+        
+        # 2. Update saldo di tabel piutang (akumulatif)
+        query_update = """
+            UPDATE hutang
+            SET terbayar = terbayar + %s,
+                sisa = sisa - %s,
+                status = CASE 
+                    WHEN (sisa - %s) <= 0 THEN 'LUNAS'
+                    WHEN (sisa - %s) > 0 AND due_date < CURDATE() THEN 'OVERDUE'
+                    ELSE 'BELUM_LUNAS'
+                END,
+                updated_at = CURDATE()
+            WHERE id = %s
+        """
+        
+        cursor.execute(query_update, (
+            float(jumlah),  # terbayar + jumlah
+            float(jumlah),  # sisa - jumlah
+            float(jumlah),  # untuk pengecekan status LUNAS
+            float(jumlah),  # untuk pengecekan status OVERDUE
+            int(id_hutang)
+        ))
+        
+        # Cek apakah update berhasil
+        if cursor.rowcount == 0:
+            raise Exception("Data hutang tidak ditemukan atau sudah lunas")
+        
+        conn.commit()
+        
+        return True, f"Pembayaran #{id_pembayaran_baru} sebesar Rp {jumlah:,.0f} berhasil disimpan"
+        
+    except Exception as e:
+        conn.rollback()
+        return False, f"Gagal menyimpan pembayaran: {str(e)}"
+        
+    finally:
+        cursor.close()
+        conn.close()
+
 
 import mysql.connector
 import pandas as pd
@@ -2306,57 +2312,96 @@ def get_barang_list_simple():
 def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
     """
     Menghitung gross profit menggunakan metode FIFO
-    Memperhitungkan bahwa ongkir dicatat sebagai baris terpisah setelah barang
+    PERBAIKAN V3 (FINAL): 
+    - Ongkir sudah spesifik per barang (id_barang sama, tipe berbeda)
+    - Match ongkir dengan barang berdasarkan: tanggal + id_barang
     """
     results = []
     
-    # Grup barang unik
+    # STEP 1: Mapping ongkir ke barang berdasarkan tanggal + id_barang
+    print("\n🔍 DEBUG: Mapping Ongkir ke Barang")
+    print("="*80)
+    
+    ongkir_map = {}  # Key: (tanggal, id_barang) -> Value: total_ongkir
+    
+    # Ambil semua baris ongkir
+    ongkir_rows = pembelian_df[pembelian_df['tipe'] == 'Ongkir']
+    
+    for _, ongkir_row in ongkir_rows.iterrows():
+        key = (ongkir_row['tanggal'], ongkir_row['id_barang'])
+        ongkir_map[key] = float(ongkir_row['subtotal'])
+        
+        print(f"Tanggal: {ongkir_row['tanggal']}, Barang ID: {ongkir_row['id_barang']} ({ongkir_row['nama_barang']})")
+        print(f"  Total Ongkir: Rp {ongkir_row['subtotal']:,.0f}")
+    
+    print("\n" + "="*80)
+    
+    # STEP 2: Proses setiap barang
     barang_ids = penjualan_df['id_barang'].unique()
     
     for barang_id in barang_ids:
-        # Filter pembelian dan penjualan untuk barang ini
-        pembelian_barang = pembelian_df[pembelian_df['id_barang'] == barang_id].copy()
+        # Filter pembelian dan penjualan untuk barang ini (HANYA TIPE BARANG)
+        pembelian_barang = pembelian_df[
+            (pembelian_df['id_barang'] == barang_id) & 
+            (pembelian_df['tipe'] == 'Barang')
+        ].copy()
+        
         penjualan_barang = penjualan_df[penjualan_df['id_barang'] == barang_id].copy()
         
         if pembelian_barang.empty or penjualan_barang.empty:
             continue
         
-        # Proses pembelian untuk menggabungkan harga barang + ongkir
-        # Asumsi: baris barang diikuti ongkir (tipe berbeda, nama sama)
+        # STEP 3: Hitung HPP per unit (termasuk ongkir spesifik)
         pembelian_processed = []
-        i = 0
-        while i < len(pembelian_barang):
-            row = pembelian_barang.iloc[i]
+        
+        print(f"\n🔍 DEBUG: Perhitungan HPP untuk {penjualan_barang.iloc[0]['nama_barang']}")
+        print("="*80)
+        
+        for idx, row in pembelian_barang.iterrows():
+            tanggal = row['tanggal']
+            qty = float(row['kuantitas'])
+            harga_barang = float(row['subtotal'])
+            harga_per_unit_barang = harga_barang / qty
             
-            # Cek apakah ada baris berikutnya dengan nama sama tapi tipe berbeda (ongkir)
-            ongkir = 0
-            if i + 1 < len(pembelian_barang):
-                next_row = pembelian_barang.iloc[i + 1]
-                # Cek jika baris berikutnya adalah ongkir (nama sama, no_nota sama)
-                if (next_row['nama_barang'] == row['nama_barang'] and 
-                    next_row['no_nota'] == row['no_nota'] and
-                    row['tipe'] != next_row['tipe']):
-                    ongkir = float(next_row['subtotal'])
-                    i += 1  # Skip baris ongkir
+            # Cari ongkir spesifik untuk barang ini di tanggal yang sama
+            key = (tanggal, barang_id)
+            if key in ongkir_map:
+                ongkir_total = ongkir_map[key]
+                ongkir_per_unit = ongkir_total / qty
+            else:
+                ongkir_total = 0
+                ongkir_per_unit = 0
             
-            # Hitung harga per unit termasuk ongkir
-            total_cost = float(row['subtotal']) + ongkir
-            unit_cost = total_cost / float(row['kuantitas']) if row['kuantitas'] > 0 else 0
+            # Total cost = harga barang + ongkir
+            total_cost = harga_barang + ongkir_total
+            unit_cost = total_cost / qty if qty > 0 else 0
+            
+            print(f"\nTanggal: {tanggal}, Nota: {row['no_nota']}")
+            print(f"  Qty: {qty}")
+            print(f"  Harga Barang: Rp {harga_per_unit_barang:,.0f}/pcs × {qty} = Rp {harga_barang:,.0f}")
+            print(f"  Ongkir: Rp {ongkir_per_unit:,.0f}/pcs × {qty} = Rp {ongkir_total:,.0f}")
+            print(f"  Total Cost: Rp {total_cost:,.0f}")
+            print(f"  HPP per unit: Rp {unit_cost:,.0f}")
             
             pembelian_processed.append({
-                'tanggal': row['tanggal'],
+                'tanggal': tanggal,
                 'no_nota': row['no_nota'],
-                'kuantitas': float(row['kuantitas']),
+                'kuantitas': qty,
                 'harga_per_unit': unit_cost,
                 'total_cost': total_cost,
-                'kuantitas_sisa': float(row['kuantitas'])
+                'kuantitas_sisa': qty,
+                'ongkir_per_unit': ongkir_per_unit
             })
-            i += 1
         
-        # FIFO calculation
+        print("\n" + "="*80)
+        
+        # STEP 4: FIFO calculation
         total_penjualan = 0
         total_hpp = 0
         purchase_queue = pembelian_processed.copy()
+        
+        print(f"\n🔍 DEBUG: FIFO Calculation untuk {penjualan_barang.iloc[0]['nama_barang']}")
+        print("="*80)
         
         for _, penjualan in penjualan_barang.iterrows():
             qty_terjual = float(penjualan['kuantitas'])
@@ -2364,8 +2409,11 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
             
             total_penjualan += qty_terjual * harga_jual
             
+            print(f"\nPenjualan: {penjualan['no_nota']}, Qty: {qty_terjual}, Harga: Rp {harga_jual:,.0f}")
+            
             # Alokasi HPP menggunakan FIFO
             qty_remaining = qty_terjual
+            penjualan_hpp = 0
             
             while qty_remaining > 0 and purchase_queue:
                 oldest_purchase = purchase_queue[0]
@@ -2373,7 +2421,11 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
                 if oldest_purchase['kuantitas_sisa'] >= qty_remaining:
                     # Pembelian ini cukup untuk memenuhi penjualan
                     hpp = qty_remaining * oldest_purchase['harga_per_unit']
+                    penjualan_hpp += hpp
                     total_hpp += hpp
+                    
+                    print(f"  Mengambil {qty_remaining} unit dari {oldest_purchase['no_nota']} @ Rp {oldest_purchase['harga_per_unit']:,.0f} = Rp {hpp:,.0f}")
+                    
                     oldest_purchase['kuantitas_sisa'] -= qty_remaining
                     qty_remaining = 0
                     
@@ -2382,9 +2434,17 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
                 else:
                     # Pembelian ini tidak cukup, ambil semua dan lanjut ke pembelian berikutnya
                     hpp = oldest_purchase['kuantitas_sisa'] * oldest_purchase['harga_per_unit']
+                    penjualan_hpp += hpp
                     total_hpp += hpp
+                    
+                    print(f"  Mengambil {oldest_purchase['kuantitas_sisa']} unit dari {oldest_purchase['no_nota']} @ Rp {oldest_purchase['harga_per_unit']:,.0f} = Rp {hpp:,.0f}")
+                    
                     qty_remaining -= oldest_purchase['kuantitas_sisa']
                     purchase_queue.pop(0)
+            
+            print(f"  Total HPP penjualan ini: Rp {penjualan_hpp:,.0f}")
+        
+        print("\n" + "="*80)
         
         gross_profit = total_penjualan - total_hpp
         margin = (gross_profit / total_penjualan * 100) if total_penjualan > 0 else 0

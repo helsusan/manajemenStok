@@ -271,6 +271,9 @@ try:
                     st.markdown(f"#### Riwayat Penjualan: {selected_barang}")
                     barang_id = barang_data['id_barang']
                     penjualan_detail = penjualan_df[penjualan_df['id_barang'] == barang_id].copy()
+
+                    # Formatting Tanggal (TAMBAHAN)
+                    penjualan_detail['tanggal'] = pd.to_datetime(penjualan_detail['tanggal']).dt.strftime('%d %b %Y')
                     
                     # Formatting untuk tabel kecil
                     penjualan_detail['subtotal_fmt'] = penjualan_detail['subtotal'].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
