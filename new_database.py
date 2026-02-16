@@ -2312,16 +2312,14 @@ def get_barang_list_simple():
 def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
     """
     Menghitung gross profit menggunakan metode FIFO
-    PERBAIKAN V3 (FINAL): 
-    - Ongkir sudah spesifik per barang (id_barang sama, tipe berbeda)
-    - Match ongkir dengan barang berdasarkan: tanggal + id_barang
+    
+    PERBAIKAN:
+    - Ongkir dikaitkan dengan barang berdasarkan (tanggal, id_barang)
+    - HPP = (Harga Barang + Ongkir Spesifik) / Qty
     """
     results = []
     
     # STEP 1: Mapping ongkir ke barang berdasarkan tanggal + id_barang
-    print("\n🔍 DEBUG: Mapping Ongkir ke Barang")
-    print("="*80)
-    
     ongkir_map = {}  # Key: (tanggal, id_barang) -> Value: total_ongkir
     
     # Ambil semua baris ongkir
@@ -2330,11 +2328,6 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
     for _, ongkir_row in ongkir_rows.iterrows():
         key = (ongkir_row['tanggal'], ongkir_row['id_barang'])
         ongkir_map[key] = float(ongkir_row['subtotal'])
-        
-        print(f"Tanggal: {ongkir_row['tanggal']}, Barang ID: {ongkir_row['id_barang']} ({ongkir_row['nama_barang']})")
-        print(f"  Total Ongkir: Rp {ongkir_row['subtotal']:,.0f}")
-    
-    print("\n" + "="*80)
     
     # STEP 2: Proses setiap barang
     barang_ids = penjualan_df['id_barang'].unique()
@@ -2354,34 +2347,21 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
         # STEP 3: Hitung HPP per unit (termasuk ongkir spesifik)
         pembelian_processed = []
         
-        print(f"\n🔍 DEBUG: Perhitungan HPP untuk {penjualan_barang.iloc[0]['nama_barang']}")
-        print("="*80)
-        
         for idx, row in pembelian_barang.iterrows():
             tanggal = row['tanggal']
             qty = float(row['kuantitas'])
             harga_barang = float(row['subtotal'])
-            harga_per_unit_barang = harga_barang / qty
             
             # Cari ongkir spesifik untuk barang ini di tanggal yang sama
             key = (tanggal, barang_id)
             if key in ongkir_map:
                 ongkir_total = ongkir_map[key]
-                ongkir_per_unit = ongkir_total / qty
             else:
                 ongkir_total = 0
-                ongkir_per_unit = 0
             
             # Total cost = harga barang + ongkir
             total_cost = harga_barang + ongkir_total
             unit_cost = total_cost / qty if qty > 0 else 0
-            
-            print(f"\nTanggal: {tanggal}, Nota: {row['no_nota']}")
-            print(f"  Qty: {qty}")
-            print(f"  Harga Barang: Rp {harga_per_unit_barang:,.0f}/pcs × {qty} = Rp {harga_barang:,.0f}")
-            print(f"  Ongkir: Rp {ongkir_per_unit:,.0f}/pcs × {qty} = Rp {ongkir_total:,.0f}")
-            print(f"  Total Cost: Rp {total_cost:,.0f}")
-            print(f"  HPP per unit: Rp {unit_cost:,.0f}")
             
             pembelian_processed.append({
                 'tanggal': tanggal,
@@ -2389,19 +2369,13 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
                 'kuantitas': qty,
                 'harga_per_unit': unit_cost,
                 'total_cost': total_cost,
-                'kuantitas_sisa': qty,
-                'ongkir_per_unit': ongkir_per_unit
+                'kuantitas_sisa': qty
             })
-        
-        print("\n" + "="*80)
         
         # STEP 4: FIFO calculation
         total_penjualan = 0
         total_hpp = 0
         purchase_queue = pembelian_processed.copy()
-        
-        print(f"\n🔍 DEBUG: FIFO Calculation untuk {penjualan_barang.iloc[0]['nama_barang']}")
-        print("="*80)
         
         for _, penjualan in penjualan_barang.iterrows():
             qty_terjual = float(penjualan['kuantitas'])
@@ -2409,11 +2383,8 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
             
             total_penjualan += qty_terjual * harga_jual
             
-            print(f"\nPenjualan: {penjualan['no_nota']}, Qty: {qty_terjual}, Harga: Rp {harga_jual:,.0f}")
-            
             # Alokasi HPP menggunakan FIFO
             qty_remaining = qty_terjual
-            penjualan_hpp = 0
             
             while qty_remaining > 0 and purchase_queue:
                 oldest_purchase = purchase_queue[0]
@@ -2421,11 +2392,7 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
                 if oldest_purchase['kuantitas_sisa'] >= qty_remaining:
                     # Pembelian ini cukup untuk memenuhi penjualan
                     hpp = qty_remaining * oldest_purchase['harga_per_unit']
-                    penjualan_hpp += hpp
                     total_hpp += hpp
-                    
-                    print(f"  Mengambil {qty_remaining} unit dari {oldest_purchase['no_nota']} @ Rp {oldest_purchase['harga_per_unit']:,.0f} = Rp {hpp:,.0f}")
-                    
                     oldest_purchase['kuantitas_sisa'] -= qty_remaining
                     qty_remaining = 0
                     
@@ -2434,17 +2401,9 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
                 else:
                     # Pembelian ini tidak cukup, ambil semua dan lanjut ke pembelian berikutnya
                     hpp = oldest_purchase['kuantitas_sisa'] * oldest_purchase['harga_per_unit']
-                    penjualan_hpp += hpp
                     total_hpp += hpp
-                    
-                    print(f"  Mengambil {oldest_purchase['kuantitas_sisa']} unit dari {oldest_purchase['no_nota']} @ Rp {oldest_purchase['harga_per_unit']:,.0f} = Rp {hpp:,.0f}")
-                    
                     qty_remaining -= oldest_purchase['kuantitas_sisa']
                     purchase_queue.pop(0)
-            
-            print(f"  Total HPP penjualan ini: Rp {penjualan_hpp:,.0f}")
-        
-        print("\n" + "="*80)
         
         gross_profit = total_penjualan - total_hpp
         margin = (gross_profit / total_penjualan * 100) if total_penjualan > 0 else 0
@@ -2460,3 +2419,159 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
         })
     
     return pd.DataFrame(results)
+
+
+
+
+# ================================================
+# 2. FUNGSI GENERATE KARTU STOK FIFO (NEW)
+# ================================================
+
+def generate_kartu_stok_fifo(barang_id, pembelian_df, penjualan_df):
+    """
+    Generate kartu stok FIFO untuk 1 barang tertentu
+    Menampilkan setiap transaksi penjualan dengan:
+    - Qty terjual
+    - Harga jual per pcs
+    - HPP per pcs (FIFO)
+    - Gross Profit per transaksi
+    
+    Args:
+        barang_id: ID barang yang ingin dilihat
+        pembelian_df: DataFrame pembelian (sudah termasuk perhitungan ongkir)
+        penjualan_df: DataFrame penjualan
+    
+    Returns:
+        DataFrame dengan kolom: tanggal, no_nota, qty, harga_jual, hpp_avg, subtotal, 
+                                total_hpp, gross_profit, margin_persen, hpp_breakdown
+    """
+    
+    # Filter data untuk barang ini
+    pembelian_barang = pembelian_df[
+        (pembelian_df['id_barang'] == barang_id) & 
+        (pembelian_df['tipe'] == 'Barang')
+    ].copy().sort_values('tanggal')
+    
+    penjualan_barang = penjualan_df[
+        penjualan_df['id_barang'] == barang_id
+    ].copy().sort_values('tanggal')
+    
+    if pembelian_barang.empty or penjualan_barang.empty:
+        return pd.DataFrame()
+    
+    # STEP 1: Mapping ongkir untuk perhitungan HPP
+    ongkir_map = {}
+    ongkir_rows = pembelian_df[
+        (pembelian_df['id_barang'] == barang_id) & 
+        (pembelian_df['tipe'] == 'Ongkir')
+    ]
+    
+    for _, ongkir_row in ongkir_rows.iterrows():
+        key = (ongkir_row['tanggal'], ongkir_row['id_barang'])
+        ongkir_map[key] = float(ongkir_row['subtotal'])
+    
+    # STEP 2: Hitung HPP per unit untuk setiap pembelian (termasuk ongkir)
+    purchase_queue = []
+    
+    for _, row in pembelian_barang.iterrows():
+        tanggal = row['tanggal']
+        qty = float(row['kuantitas'])
+        harga_barang = float(row['subtotal'])
+        
+        # Cari ongkir spesifik
+        key = (tanggal, barang_id)
+        ongkir_total = ongkir_map.get(key, 0)
+        
+        # Total cost = harga barang + ongkir
+        total_cost = harga_barang + ongkir_total
+        unit_cost = total_cost / qty if qty > 0 else 0
+        
+        purchase_queue.append({
+            'tanggal': tanggal,
+            'no_nota': row['no_nota'],
+            'kuantitas': qty,
+            'harga_per_unit': unit_cost,
+            'kuantitas_sisa': qty
+        })
+    
+    # STEP 3: Proses setiap transaksi penjualan dengan FIFO
+    kartu_stok = []
+    
+    for _, penjualan in penjualan_barang.iterrows():
+        tanggal_jual = penjualan['tanggal']
+        no_nota = penjualan['no_nota']
+        qty_terjual = float(penjualan['kuantitas'])
+        harga_jual = float(penjualan['harga_satuan'])
+        subtotal_jual = float(penjualan['subtotal'])
+        
+        # Alokasi HPP menggunakan FIFO
+        qty_remaining = qty_terjual
+        total_hpp_transaksi = 0
+        hpp_details = []  # Untuk tracking dari mana HPP diambil
+        
+        # Buat copy queue untuk transaksi ini
+        temp_queue = [p.copy() for p in purchase_queue]
+        
+        while qty_remaining > 0 and temp_queue:
+            oldest_purchase = temp_queue[0]
+            
+            if oldest_purchase['kuantitas_sisa'] >= qty_remaining:
+                # Pembelian ini cukup untuk memenuhi penjualan
+                hpp = qty_remaining * oldest_purchase['harga_per_unit']
+                total_hpp_transaksi += hpp
+                
+                hpp_details.append({
+                    'nota_beli': oldest_purchase['no_nota'],
+                    'qty': qty_remaining,
+                    'hpp_per_unit': oldest_purchase['harga_per_unit']
+                })
+                
+                oldest_purchase['kuantitas_sisa'] -= qty_remaining
+                qty_remaining = 0
+                
+                if oldest_purchase['kuantitas_sisa'] == 0:
+                    temp_queue.pop(0)
+            else:
+                # Pembelian ini tidak cukup, ambil semua
+                hpp = oldest_purchase['kuantitas_sisa'] * oldest_purchase['harga_per_unit']
+                total_hpp_transaksi += hpp
+                
+                hpp_details.append({
+                    'nota_beli': oldest_purchase['no_nota'],
+                    'qty': oldest_purchase['kuantitas_sisa'],
+                    'hpp_per_unit': oldest_purchase['harga_per_unit']
+                })
+                
+                qty_remaining -= oldest_purchase['kuantitas_sisa']
+                temp_queue.pop(0)
+        
+        # Update purchase_queue asli dengan yang sudah dipakai
+        purchase_queue = temp_queue
+        
+        # Hitung gross profit untuk transaksi ini
+        gross_profit = subtotal_jual - total_hpp_transaksi
+        margin_persen = (gross_profit / subtotal_jual * 100) if subtotal_jual > 0 else 0
+        
+        # HPP rata-rata per unit untuk transaksi ini
+        hpp_avg_per_unit = total_hpp_transaksi / qty_terjual if qty_terjual > 0 else 0
+        
+        # Format HPP details untuk tooltip/info
+        hpp_breakdown = " + ".join([
+            f"{d['qty']:.0f} pcs @ Rp {d['hpp_per_unit']:,.0f} ({d['nota_beli']})"
+            for d in hpp_details
+        ])
+        
+        kartu_stok.append({
+            'tanggal': tanggal_jual,
+            'no_nota': no_nota,
+            'qty': qty_terjual,
+            'harga_jual': harga_jual,
+            'hpp_avg': hpp_avg_per_unit,
+            'subtotal': subtotal_jual,
+            'total_hpp': total_hpp_transaksi,
+            'gross_profit': gross_profit,
+            'margin_persen': margin_persen,
+            'hpp_breakdown': hpp_breakdown  # Detail dari mana HPP diambil
+        })
+    
+    return pd.DataFrame(kartu_stok)
