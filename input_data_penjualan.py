@@ -105,12 +105,15 @@ with tab1:
             disabled=True
         )
 
+        default_top = new_database.get_top_customer(nama_customer) if nama_customer else 0
+        
         top = st.number_input(
-            "Term of Payment (hari)",
+            "Terms of Payment (hari)",
             min_value=0,
             step=1,
+            value=int(default_top),
             format="%d",
-            help="Pembayaran harus lunas dalam berapa hari"
+            help="Pembayaran harus lunas dalam berapa hari (Otomatis menggunakan default customer)"
         )
     
     st.markdown("---")
@@ -239,7 +242,7 @@ with tab2:
             # INPUT TOP
             # ======================
             top_excel = st.number_input(
-                "Term of Payment untuk seluruh data (hari)",
+                "Terms of Payment untuk seluruh data (hari)",
                 min_value=0,
                 step=1,
                 format="%d",
@@ -248,7 +251,7 @@ with tab2:
 
             if st.button("💾 Simpan", type="primary", use_container_width=True):
                 if top_excel == "":
-                    st.error("⚠️ Term of Payment wajib diisi")
+                    st.error("⚠️ Terms of Payment wajib diisi")
                     st.stop()
                 with st.spinner("Mengupload data ke database..."):
                     success_count, error_count, errors = new_database.insert_penjualan(df, default_top=top_excel)

@@ -87,8 +87,6 @@ with tab1:
             
             selected_customer_id = None
             selected_customer_name = formatted_name if nama_customer_baru else None
-
-            top_baru = st.number_input("Terms of Payment Default (Hari)", min_value=0, step=1)
         
         else:  # Mode: Tambah ke existing customer
             df_customers = new_database.get_all_data_customer(["id", "nama"])
@@ -213,7 +211,7 @@ with tab1:
                         st.warning(f"⚠️ Customer '{formatted_name}' sudah ada di database!")
                     else:
                         # Insert customer
-                        success, message = new_database.insert_customer(formatted_name, top_baru)
+                        success, message = new_database.insert_customer(formatted_name)
                         
                         if success:
                             if st.session_state.temp_pricelist:
@@ -527,10 +525,6 @@ with tab3:
                 "Nama Customer",
                 required=True,
                 width="large"
-            ),
-            "top": st.column_config.NumberColumn(
-                "Terms of Payment (Hari)",
-                required=True
             )
         }
 
@@ -561,11 +555,10 @@ with tab3:
                     if changes["edited_rows"]:
                         for index, new_values in changes["edited_rows"].items():
                             id_customer = int(df_customers.iloc[index]["id"])
-                            new_nama = new_values.get("nama", df_customers.iloc[index]["nama"])
-                            new_top = new_values.get("top", df_customers.iloc[index]["top"])
+                            new_nama = new_values.get("nama")
                             
                             if new_nama:
-                                new_database.update_customer(id_customer, new_nama, new_top)
+                                new_database.update_customer(id_customer, new_nama)
                     
                     # 3️⃣ TAMBAH DATA (jika ada)
                     if changes["added_rows"]:
