@@ -354,7 +354,7 @@ def get_customer_id(nama_cust):
 
 # Input data customer ke database
 # Bisa dipanggil manual 1x, atau dipanggil di dalam loop Excel berkali-kali
-def insert_customer(nama):
+def insert_customer(nama, top=0):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -372,11 +372,11 @@ def insert_customer(nama):
 
         # Insert Query
         query = """
-            INSERT INTO customer (nama)
-            VALUES (%s)
+            INSERT INTO customer (nama, top)
+            VALUES (%s, %s)
         """
 
-        cursor.execute(query, (nama, ))
+        cursor.execute(query, (nama, top))
         conn.commit()
         
         return True, f"Customer '{nama}' berhasil disimpan"
@@ -389,7 +389,7 @@ def insert_customer(nama):
         conn.close()
 
 # Update isi tabel customer
-def update_customer(id_cust, nama):
+def update_customer(id_cust, nama, top):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -397,10 +397,10 @@ def update_customer(id_cust, nama):
 
     query = """
         UPDATE customer
-        SET nama = %s
+        SET nama = %s, top = %s
         WHERE id = %s
     """
-    cursor.execute(query, (nama, int(id_cust)))
+    cursor.execute(query, (nama, top, int(id_cust)))
 
     conn.commit()
     cursor.close()
@@ -423,6 +423,17 @@ def delete_customer(id_cust):
     finally:
         cursor.close()
         conn.close()
+
+def get_top_customer(nama_cust):
+    conn = get_connection()
+    cursor = conn.cursor()
+    nama_cust = normalize_customer_name(nama_cust)
+    query = "SELECT top FROM customer WHERE nama = %s LIMIT 1"
+    cursor.execute(query, (nama_cust,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result[0] if result and result[0] is not None else 0
 
 
 
@@ -653,7 +664,7 @@ def get_supplier_id(nama_supp):
 
 # Input data supplier ke database
 # Bisa dipanggil manual 1x, atau dipanggil di dalam loop Excel berkali-kali
-def insert_supplier(nama):
+def insert_supplier(nama, top=0):
     conn = get_connection()
     cursor = conn.cursor()
    
@@ -671,11 +682,11 @@ def insert_supplier(nama):
 
         # Insert Query
         query = """
-            INSERT INTO supplier (nama)
-            VALUES (%s)
+            INSERT INTO supplier (nama, top)
+            VALUES (%s, %s)
         """
 
-        cursor.execute(query, (nama, ))
+        cursor.execute(query, (nama, top))
         conn.commit()
        
         return True, f"Supplier '{nama}' berhasil disimpan"
@@ -688,7 +699,7 @@ def insert_supplier(nama):
         conn.close()
 
 # Update isi tabel supplier
-def update_supplier(id_supp, nama):
+def update_supplier(id_supp, nama, top):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -696,10 +707,10 @@ def update_supplier(id_supp, nama):
 
     query = """
         UPDATE supplier
-        SET nama = %s
+        SET nama = %s, top = %s
         WHERE id = %s
     """
-    cursor.execute(query, (nama, int(id_supp)))
+    cursor.execute(query, (nama, top, int(id_supp)))
 
     conn.commit()
     cursor.close()
@@ -722,6 +733,17 @@ def delete_supplier(id_supp):
     finally:
         cursor.close()
         conn.close()
+
+def get_top_supplier(nama_supp):
+    conn = get_connection()
+    cursor = conn.cursor()
+    nama_supp = normalize_supplier_name(nama_supp)
+    query = "SELECT top FROM supplier WHERE nama = %s LIMIT 1"
+    cursor.execute(query, (nama_supp,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result[0] if result and result[0] is not None else 0
 
 
 
@@ -958,7 +980,12 @@ def insert_penjualan(df, default_top=None):
                     raise Exception(f"Baris {index + 2}: Customer '{nama_pelanggan}' tidak ditemukan")
                 
             # TOP → prioritas DataFrame → fallback ke default
-            top = row.get("TOP") if "TOP" in df.columns else default_top
+            top = row.get("TOP") if "TOP" in df.columns and pd.notna(row.get("TOP")) else default_top
+            if pd.isna(top) or top is None:
+                # Ambil default dari customer
+                cursor.execute("SELECT top FROM customer WHERE id = %s", (id_customer,))
+                cust_top = cursor.fetchone()
+                top = cust_top[0] if cust_top else 0
 
             # ======================
             # CEK DATABASE DULU (UNTUK INPUT MANUAL)
@@ -1287,7 +1314,12 @@ def insert_pembelian(df, default_top=None):
                     raise Exception(f"Baris {index + 2}: Customer '{nama_supplier}' tidak ditemukan")
                 
             # TOP → prioritas DataFrame → fallback ke default
-            top = row.get("TOP") if "TOP" in df.columns else default_top
+            top = row.get("TOP") if "TOP" in df.columns and pd.notna(row.get("TOP")) else default_top
+            if pd.isna(top) or top is None:
+                # Ambil default dari customer
+                cursor.execute("SELECT top FROM customer WHERE id = %s", (id_supplier,))
+                cust_top = cursor.fetchone()
+                top = cust_top[0] if cust_top else 0
 
             # Ambil tipe (Barang/Ongkir)
             tipe = row.get("Tipe", "Barang") # Default BARANG jika tidak ada
@@ -2575,3 +2607,130 @@ def generate_kartu_stok_fifo(barang_id, pembelian_df, penjualan_df):
         })
     
     return pd.DataFrame(kartu_stok)
+
+
+
+
+
+
+
+# ================================================
+# DATA KARTU STOK
+# ================================================
+
+def get_stok_awal_barang(id_barang, start_date):
+    """Menghitung stok sebelum tanggal mulai (Start Date)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT COALESCE(SUM(masuk) - SUM(keluar), 0) as stok_awal
+        FROM (
+            -- Barang Masuk dari Pembelian
+            SELECT pd.kuantitas as masuk, 0 as keluar
+            FROM pembelian_detail pd
+            JOIN pembelian p ON pd.id_pembelian = p.id
+            WHERE pd.id_barang = %s AND p.tipe = 'Barang' AND p.tanggal < %s
+            
+            UNION ALL
+            
+            -- Barang Keluar dari Penjualan
+            SELECT 0 as masuk, pjd.kuantitas as keluar
+            FROM penjualan_detail pjd
+            JOIN penjualan pj ON pjd.id_penjualan = pj.id
+            WHERE pjd.id_barang = %s AND pj.tanggal < %s
+        ) as riwayat_awal
+    """
+    
+    cursor.execute(query, (id_barang, start_date, id_barang, start_date))
+    result = cursor.fetchone()
+    
+    cursor.close()
+    conn.close()
+    
+    return float(result[0]) if result else 0.0
+
+def get_mutasi_harian(id_barang, start_date, end_date):
+    """Mengambil riwayat masuk keluar per hari dalam rentang tanggal tertentu"""
+    conn = get_connection()
+    
+    query = """
+        SELECT 
+            tanggal,
+            SUM(masuk) as total_masuk,
+            SUM(keluar) as total_keluar
+        FROM (
+            -- Barang Masuk dari Pembelian
+            SELECT p.tanggal, pd.kuantitas as masuk, 0 as keluar
+            FROM pembelian_detail pd
+            JOIN pembelian p ON pd.id_pembelian = p.id
+            WHERE pd.id_barang = %s AND p.tipe = 'Barang' AND p.tanggal BETWEEN %s AND %s
+            
+            UNION ALL
+            
+            -- Barang Keluar dari Penjualan
+            SELECT pj.tanggal, 0 as masuk, pjd.kuantitas as keluar
+            FROM penjualan_detail pjd
+            JOIN penjualan pj ON pjd.id_penjualan = pj.id
+            WHERE pjd.id_barang = %s AND pj.tanggal BETWEEN %s AND %s
+        ) as mutasi
+        GROUP BY tanggal
+        ORDER BY tanggal ASC
+    """
+    
+    df = pd.read_sql(query, conn, params=(id_barang, start_date, end_date, id_barang, start_date, end_date))
+    conn.close()
+    return df
+
+
+
+# ================================================
+# DATA BIAYA TAMBAHAN
+# ================================================
+
+def insert_biaya_tambahan(nama, tanggal, jumlah):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            INSERT INTO biaya_tambahan (nama, tanggal, jumlah) 
+            VALUES (%s, %s, %s)
+        """
+        cursor.execute(query, (nama, tanggal, float(jumlah)))
+        conn.commit()
+        return True, "Biaya tambahan berhasil disimpan"
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_all_biaya_tambahan(start_date=None, end_date=None):
+    conn = get_connection()
+    query = "SELECT id, nama, tanggal, jumlah FROM biaya_tambahan"
+    params = []
+    
+    if start_date and end_date:
+        query += " WHERE tanggal BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
+        
+    query += " ORDER BY tanggal DESC, id DESC"
+    
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df
+
+def delete_biaya_tambahan(id_biaya):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM biaya_tambahan WHERE id = %s", (int(id_biaya),))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        return False
+    finally:
+        cursor.close()
+        conn.close()
