@@ -4,7 +4,7 @@ from datetime import datetime
 import new_database
 
 st.set_page_config(page_title="Pelunasan Hutang", page_icon="💰", layout="wide")
-st.header("💰 Input Pelunasan Hutang (Supplier)")
+st.header("Pelunasan Hutang (Supplier)")
 
 # --- SESSION STATE ---
 if "success_msg" not in st.session_state:
@@ -15,7 +15,8 @@ if st.session_state.success_msg:
     st.session_state.success_msg = None
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Riwayat Pembayaran"])
+# tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Riwayat Pembayaran"])
+tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Riwayat Pembayaran"])
 
 # ================= TAB 1: INPUT MANUAL =================
 with tab1:
@@ -159,30 +160,30 @@ with tab1:
                     st.rerun()
 
 # ================= TAB 2: UPLOAD EXCEL =================
-with tab2:
-    st.subheader("Upload Pembayaran Massal")
-    with st.expander("ℹ️ Format Excel"):
-        st.write("Kolom Wajib: `No Invoice`, `Tanggal`, `Jumlah`, `Metode`")
-        st.write("Pastikan `No Invoice` sama persis dengan yang ada di database.")
+# with tab2:
+#     st.subheader("Upload Pembayaran Massal")
+#     with st.expander("ℹ️ Format Excel"):
+#         st.write("Kolom Wajib: `No Invoice`, `Tanggal`, `Jumlah`, `Metode`")
+#         st.write("Pastikan `No Invoice` sama persis dengan yang ada di database.")
         
-    uploaded_file = st.file_uploader("Upload File .xlsx", type=["xlsx"])
+#     uploaded_file = st.file_uploader("Upload File .xlsx", type=["xlsx"])
     
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file)
-            st.dataframe(df.head())
+#     if uploaded_file:
+#         try:
+#             df = pd.read_excel(uploaded_file)
+#             st.dataframe(df.head())
             
-            if st.button("Proses Upload", type="primary"):
-                # Logic sederhana: Loop dan insert
-                # (Disarankan menambahkan validasi No Invoice ke database dulu di real app)
-                st.info("Fitur ini akan memproses baris per baris...")
-                # Implementasi loop insert_pembayaran di sini mirip tab manual
-                st.warning("⚠️ Logic mapping No Invoice ke ID Invoice perlu query tambahan. Gunakan Tab Manual dulu untuk saat ini.")
-        except Exception as e:
-            st.error(f"Error: {e}")
+#             if st.button("Proses Upload", type="primary"):
+#                 # Logic sederhana: Loop dan insert
+#                 # (Disarankan menambahkan validasi No Invoice ke database dulu di real app)
+#                 st.info("Fitur ini akan memproses baris per baris...")
+#                 # Implementasi loop insert_pembayaran di sini mirip tab manual
+#                 st.warning("⚠️ Logic mapping No Invoice ke ID Invoice perlu query tambahan. Gunakan Tab Manual dulu untuk saat ini.")
+#         except Exception as e:
+#             st.error(f"Error: {e}")
 
 # ================= TAB 3: RIWAYAT =================
-with tab3:
+with tab2:
     st.subheader("Riwayat Pembayaran Hutang")
     
     col1, col2 = st.columns(2)
