@@ -7,7 +7,7 @@ from datetime import datetime
 st.set_page_config(page_title="Dashboard Keuangan", page_icon="📊", layout="wide")
 
 st.title("📊 Rekapan & Analisis Keuangan")
-st.caption("Ringkasan status Hutang (AP) dan Piutang (AR) Perusahaan")
+# st.caption("Ringkasan status Hutang (AP) dan Piutang (AR) Perusahaan")
 
 # ================= DATA FETCHING =================
 # Mengambil ringkasan dari database
@@ -60,6 +60,28 @@ def show_aging_table(jenis):
     if df.empty:
         st.success("🎉 Tidak ada invoice outstanding!")
         return
+    
+    # Filter Customer / Supplier
+    label_partner = 'Customer' if jenis == 'piutang' else 'Supplier'
+    
+    # Ambil list nama partner yang unik dan urutkan abjad
+    partner_list = ["Semua"] + sorted(df['partner_name'].dropna().unique().tolist())
+    
+    # Tampilkan dropdown filter
+    selected_partner = st.selectbox(
+        f"🔍 Filter {label_partner}",
+        options=partner_list,
+        key=f"filter_{jenis}"
+    )
+    
+    # Terapkan filter jika user tidak memilih "Semua"
+    if selected_partner != "Semua":
+        df = df[df['partner_name'] == selected_partner].copy()
+        
+        # Jika setelah difilter datanya kosong, beri info
+        if df.empty:
+            st.info(f"💡 Tidak ada tagihan outstanding untuk {label_partner} '{selected_partner}'.")
+            return
 
     # Hitung Hari Keterlambatan
     df['due_date'] = pd.to_datetime(df['due_date'])
@@ -74,13 +96,9 @@ def show_aging_table(jenis):
         
     df['Status'] = df['overdue_days'].apply(get_status)
     
-    # HAPUS BARIS YANG ERROR DULU (partner_ids = ...)
-    # Sekarang kita langsung pakai kolom 'partner_name' dari query baru
-    
     st.subheader(f"📋 Detail Invoice Outstanding ({'Customer' if jenis == 'piutang' else 'Supplier'})")
     
     # Tampilkan Tabel
-    # Kita tambahkan kolom 'partner_name' agar terlihat siapa yang berhutang/dihutangi
     display_cols = ['no_nota', 'partner_name', 'due_date', 'total', 'sisa', 'overdue_days', 'Status']
 
     # Format tanggal
