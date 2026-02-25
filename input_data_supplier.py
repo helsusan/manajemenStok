@@ -108,6 +108,10 @@ with tab1:
                     key="select_existing_supplier"
                 )
                 selected_supplier_id = new_database.get_supplier_id(selected_supplier_name)
+
+                # Tampilkan & Edit TOP Supplier Existing
+                current_top = new_database.get_top_supplier(selected_supplier_name)
+                top_existing = st.number_input("Update Terms of Payment (Hari)", min_value=0, step=1, value=int(current_top))
             
             nama_supplier_baru = None
     
@@ -245,28 +249,28 @@ with tab1:
                 st.error("❌ Tambahkan minimal 1 barang ke pricelist!")
             else:
                 try:
+                    new_database.update_supplier(selected_supplier_id, selected_supplier_name, top_existing)
+
                     pricelist_success = 0
                     pricelist_updated = 0
                     
-                    for item in st.session_state.temp_pricelist:
-                        id_barang = new_database.get_barang_id(item["barang"])
-                        
-                        # Cek apakah pricelist sudah ada
-                        existing = new_database.check_supp_pricelist_exists(selected_supplier_id, id_barang)
-                        
-                        if new_database.upsert_supplier_pricelist(selected_supplier_id, id_barang, item["harga"]):
-                            if existing:
-                                pricelist_updated += 1
-                            else:
-                                pricelist_success += 1
+                    if st.session_state.temp_pricelist:
+                        for item in st.session_state.temp_pricelist:
+                            id_barang = new_database.get_barang_id(item["barang"])
+                            existing = new_database.check_supp_pricelist_exists(selected_supplier_id, id_barang)
+                            if new_database.upsert_supplier_pricelist(selected_supplier_id, id_barang, item["harga"]):
+                                if existing:
+                                    pricelist_updated += 1
+                                else:
+                                    pricelist_success += 1
                     
-                    msg_parts = []
+                    msg_parts = [f"TOP diupdate menjadi {top_existing} hari"]
                     if pricelist_success > 0:
                         msg_parts.append(f"{pricelist_success} pricelist baru ditambahkan")
                     if pricelist_updated > 0:
                         msg_parts.append(f"{pricelist_updated} pricelist diupdate")
                     
-                    st.session_state.manual_success = f"Pricelist untuk '{selected_supplier_name}' berhasil disimpan! ({', '.join(msg_parts)})"
+                    st.session_state.manual_success = f"Data '{selected_supplier_name}' berhasil disimpan! ({', '.join(msg_parts)})"
                     st.session_state.temp_pricelist = []
                     st.rerun()
                 
@@ -286,11 +290,9 @@ with tab2:
 
     with st.expander("ℹ️ Format file Excel data supplier & pricelist"):
         st.write("""
-        **Format 1: Supplier saja**
-        - Kolom: `Nama`
-        
-        **Format 2: Supplier + Pricelist**
-        - Kolom: `Nama`, `Barang`, `Harga`
+        - Kolom Wajib: `Nama`
+        - Kolom Opsional: `TOP`
+        - Kolom Pricelist: `Barang`, `Harga`
         - Jika ada pricelist, setiap baris = 1 supplier + 1 barang + 1 harga
         - Supplier yang sama bisa muncul di banyak baris dengan barang berbeda
         """)
@@ -324,6 +326,7 @@ with tab2:
 
             target_cols = {
                 "NAMA": "Nama",
+                "TOP": "TOP",
                 "BARANG": "Barang",
                 "HARGA": "Harga"
             }
@@ -348,6 +351,9 @@ with tab2:
 
             # Normalize nama supplier
             df["Nama"] = df["Nama"].apply(new_database.normalize_supplier_name)
+
+            if "TOP" in df.columns:
+                df["TOP"] = pd.to_numeric(df["TOP"], errors="coerce").fillna(0).astype(int)
 
             has_pricelist = "Barang" in df.columns and "Harga" in df.columns
 
@@ -375,9 +381,17 @@ with tab2:
                                     errors.append(f"Baris {idx+1}: Data tidak lengkap")
                                     continue
                                 
+                                # Ambil nilai TOP
+                                top_val = row.get("TOP", 0) if "TOP" in df.columns else 0
+                                
                                 # Insert/get supplier
                                 if not new_database.check_supplier_available(nama):
-                                    new_database.insert_supplier(nama)
+                                    new_database.insert_supplier(nama, top_val)
+                                else:
+                                    # Jika Supplier sudah ada & nilai TOP diisi di Excel, update TOP-nya
+                                    if "TOP" in df.columns and pd.notna(row.get("TOP")):
+                                        id_supp = new_database.get_supplier_id(nama)
+                                        new_database.update_supplier(id_supp, nama, top_val)
                                 
                                 id_supplier = new_database.get_supplier_id(nama)
                                 id_barang = new_database.get_barang_id(barang)
@@ -413,6 +427,11 @@ with tab2:
                                     error_count += 1
                                     errors.append(f"Baris {idx+1}: Nama kosong")
                                     continue
+
+                                # Ambil nilai TOP
+                                top_val = 0
+                                if "TOP" in df.columns and pd.notna(row.get("TOP")):
+                                    top_val = int(row.get("TOP"))
                                 
                                 if not new_database.check_supplier_available(nama):
                                     success, message = new_database.insert_supplier(nama)
@@ -422,8 +441,14 @@ with tab2:
                                         error_count += 1
                                         errors.append(f"Baris {idx+1}: {message}")
                                 else:
-                                    error_count += 1
-                                    errors.append(f"Baris {idx+1}: Supplier '{nama}' sudah ada")
+                                    # Update TOP jika Supplier sudah ada di database
+                                    if "TOP" in df.columns and pd.notna(row.get("TOP")):
+                                        id_supp = new_database.get_supplier_id(nama)
+                                        new_database.update_supplier(id_supp, nama, top_val)
+                                        success_count += 1
+                                    else:
+                                        error_count += 1
+                                        errors.append(f"Baris {idx+1}: Supplier '{nama}' sudah ada (Tanpa perubahan TOP)")
                                     
                             except Exception as e:
                                 error_count += 1
@@ -667,7 +692,7 @@ with tab4:
         df_edit["harga"] = df_edit["harga"].apply(lambda x: f"Rp {int(x):,.0f}".replace(",", ".")).astype(str)
 
         # Format tanggal jadi string agar csv tanpa time
-        df_edit["updated_at"] = pd.to_datetime(df_edit["updated_at"]).dt.strftime('%d/%m/%Y')
+        df_edit["updated_at"] = pd.to_datetime(df_edit["updated_at"]).dt.strftime('%d %b %Y')
 
         column_config = {
             "id_pricelist": None,  # Hide ID
