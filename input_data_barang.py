@@ -57,8 +57,12 @@ if st.session_state.active_tab != current_tab:
 
 with tab1:
     st.subheader("➕ Input Barang Baru")
-    
-    nama_barang_baru = st.text_input("Nama Barang", placeholder="Contoh: AQUA 600ML")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        nama_barang_baru = st.text_input("Nama Barang", placeholder="Contoh: AQUA 600ML")
+    with col2:
+        satuan_baru = st.text_input("Satuan", placeholder="Contoh: pcs")
             
     if st.button("💾 Simpan", type="primary", use_container_width=True, key="btn_simpan_manual"):
         if nama_barang_baru.strip() == "":
@@ -69,7 +73,7 @@ with tab1:
                 if new_database.check_barang_available(nama_barang_baru):
                     st.warning(f"⚠️ Barang '{nama_barang_baru}' sudah ada di database!")
                 else:
-                    success, message = new_database.insert_barang(nama_barang_baru.upper())
+                    success, message = new_database.insert_barang(nama_barang_baru.upper(), satuan_baru.lower())
 
                     if success:
                         st.session_state.manual_success = message
@@ -94,6 +98,7 @@ with tab2:
     with st.expander("ℹ️ Format file Excel data barang"):
         st.write("""
         - Kolom wajib: `Nama`
+        - Kolom opsional: `Satuan`
         """)
 
     uploaded_file = st.file_uploader(
@@ -126,6 +131,7 @@ with tab2:
 
             target_cols = {
                 "NAMA": "Nama",
+                "SATUAN": "Satuan",
                 "MODEL_PREDIKSI": "model_prediksi",
                 "P": "p", 
                 "D": "d", 
@@ -155,6 +161,9 @@ with tab2:
             if "Nama" in df.columns:
                 df["Nama"] = df["Nama"].astype(str).str.upper()
             
+            if "Satuan" in df.columns:
+                df["Satuan"] = df["Satuan"].astype(str).str.lower()
+            
             # Hapus baris yang kosong total
             df = df.dropna(how="all")
 
@@ -176,6 +185,7 @@ with tab2:
                         try:
                             success, message = new_database.insert_barang(
                                 nama=row.get("Nama"),
+                                satuan=row.get("Satuan"),
                                 model_prediksi=row.get("model_prediksi", "Mean"),
                                 p=row.get("p"),
                                 d=row.get("d"),
@@ -246,6 +256,9 @@ with tab3:
                 "nama": st.column_config.TextColumn(
                     "Nama Barang", required=True
                 ),
+                "satuan": st.column_config.TextColumn(
+                    "Satuan", required=True
+                ),
                 "model_prediksi": st.column_config.SelectboxColumn(
                     "Model", options=["ARIMA", "Mean"], required=True
                 ),
@@ -313,6 +326,7 @@ with tab3:
                                     new_database.update_barang(
                                         int(row['id']),
                                         str(row['nama']).upper(), # UPDATED: Force Uppercase saat edit
+                                        str(row['satuan']).lower(),
                                         row['model_prediksi'],
                                         clean_nan(p_val), # UPDATED: Bersihkan NaN
                                         clean_nan(d_val), # UPDATED: Bersihkan NaN
@@ -320,28 +334,28 @@ with tab3:
                                     )
 
                             # 3️⃣ TAMBAH DATA
-                            if changes["added_rows"]:
-                                for new_row in changes["added_rows"]:
-                                    nama = new_row.get("nama", "")
+                            # if changes["added_rows"]:
+                            #     for new_row in changes["added_rows"]:
+                            #         nama = new_row.get("nama", "")
 
-                                    if not nama:
-                                        continue  # skip baris kosong
+                            #         if not nama:
+                            #             continue  # skip baris kosong
 
-                                    # Normalisasi nama
-                                    nama = nama.strip().upper()
+                            #         # Normalisasi nama
+                            #         nama = nama.strip().upper()
 
-                                    # Validasi duplikasi
-                                    if new_database.check_barang_available(nama):
-                                        raise Exception(f"Barang '{nama}' sudah ada di database")
+                            #         # Validasi duplikasi
+                            #         if new_database.check_barang_available(nama):
+                            #             raise Exception(f"Barang '{nama}' sudah ada di database")
 
-                                    if nama and not new_database.check_barang_available(nama):
-                                        new_database.insert_barang(
-                                            nama=nama,
-                                            model_prediksi=new_row.get("model_prediksi", "Mean"),
-                                            p=new_row.get("p"),
-                                            d=new_row.get("d"),
-                                            q=new_row.get("q")
-                                        )
+                            #         if nama and not new_database.check_barang_available(nama):
+                            #             new_database.insert_barang(
+                            #                 nama=nama,
+                            #                 model_prediksi=new_row.get("model_prediksi", "Mean"),
+                            #                 p=new_row.get("p"),
+                            #                 d=new_row.get("d"),
+                            #                 q=new_row.get("q")
+                            #             )
 
                         st.session_state.edit_success = True
 

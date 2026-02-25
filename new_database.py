@@ -178,7 +178,7 @@ def get_barang_id(nama_barang):
 
 # Input data barang ke database
 # Bisa dipanggil manual 1x, atau dipanggil di dalam loop Excel berkali-kali
-def insert_barang(nama, model_prediksi="Mean", p=None, d=None, q=None):
+def insert_barang(nama, satuan=None, model_prediksi="Mean", p=None, d=None, q=None):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -205,8 +205,8 @@ def insert_barang(nama, model_prediksi="Mean", p=None, d=None, q=None):
 
         # Insert Query
         query = """
-            INSERT INTO barang (nama, model_prediksi, p, d, q)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO barang (nama, satuan, model_prediksi, p, d, q)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """
         
         # Handle nilai NaN dari Excel supaya jadi None (NULL) di database
@@ -215,7 +215,7 @@ def insert_barang(nama, model_prediksi="Mean", p=None, d=None, q=None):
             try: return int(float(v))
             except: return None
 
-        cursor.execute(query, (nama, model_prediksi, clean_val(p), clean_val(d), clean_val(q)))
+        cursor.execute(query, (nama, satuan, model_prediksi, clean_val(p), clean_val(d), clean_val(q)))
         conn.commit()
         
         return True, f"Barang '{nama}' berhasil disimpan"
@@ -228,20 +228,21 @@ def insert_barang(nama, model_prediksi="Mean", p=None, d=None, q=None):
         conn.close()
 
 # Update isi tabel barang
-def update_barang(id_barang, nama, model_prediksi, p, d, q):
+def update_barang(id_barang, nama, satuan, model_prediksi, p, d, q):
     conn = get_connection()
     cursor = conn.cursor()
 
     query = """
         UPDATE barang
         SET nama = %s,
+            satuan = %s,
             model_prediksi = %s,
             p = %s,
             d = %s,
             q = %s
         WHERE id = %s
     """
-    cursor.execute(query, (nama, model_prediksi, p, d, q, int(id_barang)))
+    cursor.execute(query, (nama, satuan, model_prediksi, p, d, q, int(id_barang)))
 
     conn.commit()
     cursor.close()
