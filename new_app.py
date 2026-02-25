@@ -9,10 +9,13 @@ pages = {
         st.Page("input_data_pembelian.py", title="Data Pembelian"),
         st.Page("input_pelunasan_piutang.py", title="Data Piutang"),
         st.Page("input_pelunasan_hutang.py", title="Data Hutang"),
+        st.Page("input_biaya_tambahan.py", title="Biaya Tambahan"),
     ],
     "Dashboard": [
         st.Page("rekapan.py", title="Rekapan Hutang & Piutang"),
+        st.Page("stok_barang.py", title="Stok Barang"),
         st.Page("gross_profit.py", title="Gross Profit"),
+        st.Page("net_profit.py", title="Net Profit"),
     ],
 }
 
