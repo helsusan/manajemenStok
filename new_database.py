@@ -2848,3 +2848,18 @@ def delete_biaya_tambahan(id_biaya):
     finally:
         cursor.close()
         conn.close()
+
+def update_biaya_tambahan(id_biaya, jumlah):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        query = "UPDATE biaya_tambahan SET jumlah = %s WHERE id = %s"
+        cursor.execute(query, (float(jumlah), int(id_biaya)))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        return False
+    finally:
+        cursor.close()
+        conn.close()
