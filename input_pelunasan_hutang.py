@@ -10,10 +10,6 @@ st.header("Pelunasan Hutang (Supplier)")
 if "success_msg" not in st.session_state:
     st.session_state.success_msg = None
 
-if st.session_state.success_msg:
-    st.success(st.session_state.success_msg)
-    st.session_state.success_msg = None
-
 # --- TABS ---
 # tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Riwayat Pembayaran"])
 tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Riwayat Pembayaran"])
@@ -21,28 +17,31 @@ tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Riwayat Pembayaran"])
 # ================= TAB 1: INPUT MANUAL =================
 with tab1:
     st.subheader("Input Pembayaran Hutang")
+
+    with st.expander("ℹ️ Cara input pelunasan"):
+        st.write("""
+        1. Pilih nama supplier
+        2. Pilih nota pembelian yang ingin dibayar
+        3. Masukkan detail pembayaran
+        """)
     
-    # 1. Pilih Supplier
     suppliers = new_database.get_all_data_supplier(["id", "nama"])
     cust_opts = {"-- Pilih Supplier --": None}
     if not suppliers.empty:
         cust_opts.update(dict(zip(suppliers['nama'], suppliers['id'])))
     
-    sel_cust = st.selectbox("Cari Supplier", options=list(cust_opts.keys()))
+    sel_cust = st.selectbox("Nama Supplier", options=list(cust_opts.keys()))
     
     if sel_cust != "-- Pilih Supplier --":
         id_cust = cust_opts[sel_cust]
         
-        # 2. Ambil Invoice Belum Lunas
         available_hutang = new_database.get_outstanding_invoices("hutang", id_cust)
         
         if available_hutang.empty:
             st.info("✅ Tidak ada hutang yang belum lunas untuk supplier ini.")
         else:
-            # Tampilkan detail nota yang belum lunas
             st.markdown("### 📋 Daftar Nota Belum Lunas:")
 
-            # Format invoice untuk dropdown
             available_hutang['display'] = available_hutang.apply(
                 lambda x: f"No. Nota: {x['no_nota']} | Total: Rp {x['total']:,.0f} | Terbayar: Rp {x['terbayar']:,.0f} | Sisa: Rp {x['sisa']:,.0f} | Jatuh Tempo: {pd.to_datetime(x['due_date']).strftime('%d %b %Y')}", axis=1
             )
@@ -62,7 +61,6 @@ with tab1:
             # Ambil data detail nota yang dipilih
             selected_invoice = available_hutang[available_hutang['id'] == id_hutang_selected].iloc[0]
             
-            # Tampilkan info nota yang dipilih
             st.markdown("---")
             col_info1, col_info2, col_info3 = st.columns(3)
             with col_info1:
@@ -74,21 +72,18 @@ with tab1:
             
             st.markdown("---")
             
-            # Form Input Pembayaran
             with st.form("form_bayar_hutang"):
                 st.markdown("### 💳 Form Pembayaran")
                 
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Field: no_invoice (invoice pembayaran)
-                    no_invoice_bayar = st.text_input(
-                        "No. Invoice Pembayaran", 
-                        placeholder="Contoh: INV-PAY-001",
-                        help="Nomor invoice untuk pembayaran ini (opsional)"
+                    bukti_penerimaan = st.text_input(
+                        "Bukti Penerimaan", 
+                        placeholder="Contoh: Kas Masuk",
+                        help=""
                     )
                     
-                    # Field: tanggal_bayar
                     tanggal_bayar = st.date_input(
                         "Tanggal Bayar", 
                         value=datetime.now(),
@@ -96,7 +91,6 @@ with tab1:
                     )
                 
                 with col2:
-                    # Field: jumlah (jumlah pembayaran)
                     jumlah_bayar = st.number_input(
                         "Jumlah Bayar (Rp)", 
                         min_value=0.0, 
@@ -108,7 +102,6 @@ with tab1:
                         key="input_jumlah_bayar"
                     )
                 
-                # Field: keterangan
                 keterangan = st.text_area(
                     "Keterangan", 
                     placeholder="Contoh: Pembayaran via transfer BCA",
@@ -117,7 +110,6 @@ with tab1:
                 
                 st.markdown("---")
                 
-                # Tombol Submit
                 col_btn1, col_btn2 = st.columns(2)
                 
                 with col_btn1:
@@ -133,18 +125,14 @@ with tab1:
                         use_container_width=True
                     )
                 
-                # Proses Submit
                 if submit_bayar and not cancel_bayar:
-                    # Validasi
                     if jumlah_bayar <= 0:
                         st.error("⚠️ Jumlah bayar harus lebih dari 0")
                         st.stop()
                     else:
-                        # Siapkan data untuk insert
-                        # created_at akan di-handle di function insert
                         success, msg = new_database.insert_pembayaran_hutang(
                             id_hutang=id_hutang_selected,
-                            no_invoice=no_invoice_bayar if no_invoice_bayar else None,
+                            bukti_penerimaan=bukti_penerimaan,
                             tanggal_bayar=tanggal_bayar,
                             jumlah=jumlah_bayar,
                             keterangan=keterangan
@@ -158,6 +146,10 @@ with tab1:
                 
                 if cancel_bayar:
                     st.rerun()
+
+        if st.session_state.success_msg:
+            st.success(st.session_state.success_msg)
+            st.session_state.success_msg = None
 
 # ================= TAB 2: UPLOAD EXCEL =================
 # with tab2:
@@ -186,30 +178,34 @@ with tab1:
 with tab2:
     st.subheader("Riwayat Pembayaran Hutang")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        start_d = st.date_input("Dari Tanggal", value=datetime(datetime.now().year, datetime.now().month, 1))
-    with col2:
-        end_d = st.date_input("Sampai Tanggal", value=datetime.now())
+    selected_date = st.date_input(
+        "📅 Tanggal",
+        value=[],
+        help="Kosongkan untuk tampilkan semua."
+    )
+
+    start_date, end_date = None, None
+    if len(selected_date) == 2:
+        start_date, end_date = selected_date
+    elif len(selected_date) == 1:
+        start_date = end_date = selected_date[0]
         
-    df_hist = new_database.get_history_pembayaran("hutang", start_d, end_d)
+    df_hist = new_database.get_history_pembayaran("hutang", start_date, end_date)
     
     if not df_hist.empty:
-        # Format Dataframe
         df_hist['tanggal_bayar'] = pd.to_datetime(df_hist['tanggal_bayar']).dt.strftime('%d %b %Y')
         df_hist['jumlah_bayar'] = df_hist['jumlah_bayar'].apply(lambda x: f"Rp {x:,.0f}")
         
-        # Tambahkan kolom delete
         df_hist.insert(0, "Hapus", False)
         
         edited_df = st.data_editor(
             df_hist,
             column_config={
                 "Hapus": st.column_config.CheckboxColumn("Hapus", help="Centang untuk menghapus pembayaran"),
-                "id": None, # Hide ID
-                "no_pembayaran": st.column_config.TextColumn("No. Invoice Pembayaran"),
+                "id": None,
+                "bukti_penerimaan": st.column_config.TextColumn("Bukti Penerimaan"),
                 "tanggal_bayar": st.column_config.TextColumn("Tanggal"),
-                "no_invoice_tagihan": st.column_config.TextColumn("No. Faktur Pembelian"),
+                "no_nota_tagihan": st.column_config.TextColumn("No. Faktur Pembelian"),
                 "partner": st.column_config.TextColumn("Supplier"),
                 "jumlah_bayar": st.column_config.TextColumn("Jumlah Bayar"),
                 "keterangan": st.column_config.TextColumn("Keterangan"),
@@ -218,7 +214,6 @@ with tab2:
             use_container_width=True
         )
         
-        # Logic Hapus
         to_delete = edited_df[edited_df['Hapus'] == True]
         if not to_delete.empty:
             st.warning(f"⚠️ Anda akan menghapus {len(to_delete)} pembayaran. Saldo invoice akan kembali bertambah.")
