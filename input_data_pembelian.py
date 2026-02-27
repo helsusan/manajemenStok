@@ -368,7 +368,7 @@ with tab3:
             "kuantitas": st.column_config.NumberColumn("Qty"),
             "subtotal": st.column_config.TextColumn("Subtotal"),
             "total_nota": st.column_config.TextColumn("Total"),
-            "top": st.column_config.NumberColumn("Terms of Payment (hari)"),
+            "top": st.column_config.NumberColumn("TOP"),
         }
 
         edited_df = st.data_editor(

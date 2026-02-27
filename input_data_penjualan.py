@@ -70,13 +70,19 @@ with tab1:
         )
 
     with col2:
-        kuantitas = st.number_input(
-            "Kuantitas:",
-            min_value=0,
-            step=1,
-            format="%d",
-            key="input_kuantitas"
-        )
+        satuan_barang = new_database.get_satuan_barang(data_barang)
+
+        col_qty, col_sat = st.columns([2, 1])
+        with col_qty:
+            kuantitas = st.number_input(
+                "Kuantitas:",
+                min_value=0,
+                step=1,
+                format="%d",
+                key="input_kuantitas"
+            )
+        with col_sat:
+            st.text_input("Satuan", value=satuan_barang, disabled=True)
         
         harga_satuan = new_database.get_harga_customer(nama_customer, jenis_barang)
 
@@ -350,17 +356,19 @@ with tab3:
             "tanggal": st.column_config.TextColumn("Tanggal"),
             "nama_customer": st.column_config.TextColumn("Customer"),
             "nama_barang": st.column_config.TextColumn("Barang"),
+            "satuan": st.column_config.TextColumn("Satuan"),
             "kuantitas": st.column_config.NumberColumn("Qty"),
+            "harga_satuan": st.column_config.TextColumn("Price"),
             "subtotal": st.column_config.TextColumn("Subtotal"),
             "total_nota": st.column_config.TextColumn("Total"),
-            "top": st.column_config.NumberColumn("Terms of Payment (hari)"),
+            "top": st.column_config.NumberColumn("TOP"),
         }
 
         edited_df = st.data_editor(
             df_display,
             hide_index=True,
             use_container_width=True,
-            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "kuantitas", "subtotal", "total_nota", "top"],
+            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "satuan", "kuantitas", "price", "subtotal", "total_nota", "top"],
             column_config=column_config,
             key="penjualan_editor"
         )

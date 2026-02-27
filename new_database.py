@@ -285,6 +285,21 @@ def check_related_data(id_barang):
 
     return related
 
+def get_satuan_barang(nama_barang):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT satuan FROM barang WHERE nama = %s", (nama_barang,))
+        result = cursor.fetchone()
+        if result and result[0]:
+            return result[0]
+        return "-"
+    except Exception as e:
+        return "-"
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 
@@ -1190,6 +1205,7 @@ def get_data_penjualan(tanggal=None, customer=None, barang=None):
             p.tanggal,
             c.nama AS nama_customer,
             b.nama AS nama_barang,
+            b.satuan AS satuan,
             pd.kuantitas,
             pd.subtotal,
             p.total AS total_nota,
@@ -1528,6 +1544,7 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
             p.tanggal,
             s.nama AS nama_supplier,
             b.nama AS nama_barang,
+            b.satuan AS satuan,
             pd.kuantitas,
             pd.subtotal,
             p.total AS total_nota,
