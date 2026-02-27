@@ -70,7 +70,7 @@ with tab1:
         )
 
     with col2:
-        satuan_barang = new_database.get_satuan_barang(data_barang)
+        satuan_barang = new_database.get_satuan_barang(jenis_barang)
 
         col_qty, col_sat = st.columns([2, 1])
         with col_qty:
@@ -208,7 +208,7 @@ with tab2:
     with st.expander("ℹ️ Format file Excel data penjualan"):
         st.write("""
         - Kolom wajib: `No. Faktur`, `Tgl Faktur`, `Nama Pelanggan`, `Keterangan Barang`, `Kuantitas`, `Jumlah`
-        - Kolom opsional: `TOP`
+        - Kolom opsional: `Satuan`, `Harga Satuan`, `TOP`
         - Nama Barang dan Customer harus sudah ada di database
         """)
     
@@ -234,9 +234,67 @@ with tab2:
 
             df = pd.read_excel(uploaded_file, header=header_row_index)
 
+            # Identifikasi kolom yang akan dipakai
+            actual_cols = [col for col in EXPECTED_COLS if col in df.columns]
+
+            # Cek jika excel memiliki kolom opsional
+            if "Satuan" in df.columns:
+                actual_cols.append("Satuan")
+            if "Harga Satuan" in df.columns:
+                actual_cols.append("Harga Satuan")
+            if "TOP" in df.columns:
+                actual_cols.append("TOP")
+
             df = df.dropna(how="all")
             df = df[EXPECTED_COLS]
             df = new_database.clean_excel_apostrophe(df)
+
+            mismatch_errors = []
+
+            # 1. PENGECEKAN SATUAN BARANG
+            if "Satuan" in df.columns:
+                df_barang_db = new_database.get_all_data_barang(["nama", "satuan"])
+                dict_satuan_db = dict(zip(df_barang_db['nama'].str.upper(), df_barang_db['satuan'].astype(str).str.lower()))
+                
+                for idx, row in df.iterrows():
+                    excel_nama = str(row.get('Keterangan Barang')).strip().upper()
+                    excel_satuan = str(row.get('Satuan')).strip().lower()
+                    
+                    if not pd.isna(row.get('Satuan')) and excel_nama in dict_satuan_db:
+                        db_satuan = dict_satuan_db[excel_nama]
+                        if excel_satuan != db_satuan:
+                            mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Barang '{row['Keterangan Barang']}' (Satuan Excel: {row['Satuan']} | Satuan DB: {db_satuan})")
+            
+            # 2. PENGECEKAN HARGA SATUAN
+            if "Harga Satuan" in df.columns:
+                for idx, row in df.iterrows():
+                    customer = str(row.get('Nama Pelanggan')).strip()
+                    barang = str(row.get('Keterangan Barang')).strip()
+                    excel_price = row.get('Harga Satuan')
+                    
+                    if pd.notna(excel_price):
+                        db_price = new_database.get_harga_customer(customer, barang)
+                        if db_price is None:
+                            db_price = 0
+                        
+                        # Toleransi perbedaan koma / desimal kecil (jika selisih >= 1 Rupiah, anggap beda)
+                        if abs(float(excel_price) - float(db_price)) >= 1:
+                            mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Harga Satuan '{barang}' untuk '{customer}' tidak sesuai! (Excel: Rp {float(excel_price):,.0f} | DB: Rp {float(db_price):,.0f})")
+            else:
+                # 3. JIKA TIDAK ADA KOLOM HARGA SATUAN, HITUNG OTOMATIS
+                # Mencegah error pembagian dengan 0 (ZeroDivisionError)
+                df["Harga Satuan"] = df.apply(
+                    lambda row: float(row["Jumlah"]) / float(row["Kuantitas"]) if float(row["Kuantitas"]) > 0 else 0, 
+                    axis=1
+                )
+            
+            # Jika ada error dari satuan ATAU harga satuan, blokir proses
+            if mismatch_errors:
+                st.error("❌ Terdapat ketidaksesuaian data (Satuan / Harga) dengan yang ada di database. Upload dibatalkan.")
+                with st.expander("Lihat detail error"):
+                    for err in mismatch_errors:
+                        st.error(err)
+                st.stop()
 
             st.success("✅ Data berhasil dibersihkan!")
                     
@@ -244,23 +302,9 @@ with tab2:
             st.dataframe(df.head(10), use_container_width=True)
             st.info(f"Total baris: {len(df)}")
 
-            # ======================
-            # INPUT TOP
-            # ======================
-            top_excel = st.number_input(
-                "Terms of Payment untuk seluruh data (hari)",
-                min_value=0,
-                step=1,
-                format="%d",
-                help="Semua transaksi dari file Excel pembayarannya harus lunas dalam berapa hari"
-            )
-
             if st.button("💾 Simpan", type="primary", use_container_width=True):
-                if top_excel == "":
-                    st.error("⚠️ Terms of Payment wajib diisi")
-                    st.stop()
                 with st.spinner("Mengupload data ke database..."):
-                    success_count, error_count, errors = new_database.insert_penjualan(df, default_top=top_excel)
+                    success_count, error_count, errors = new_database.insert_penjualan(df, default_top=None)
                             
                 if success_count > 0:
                     st.success(f"✅ Berhasil mengupload {success_count} baris data!")
@@ -296,10 +340,16 @@ with tab3:
 
     with col1:
         selected_date = st.date_input(
-            "Filter Tanggal",
-            value=None,
-            help="Kosongkan untuk tampilkan semua data"
+            "📅 Tanggal",
+            value=[],
+            help="Kosongkan untuk tampilkan semua."
         )
+
+        start_date, end_date = None, None
+        if len(selected_date) == 2:
+            start_date, end_date = selected_date
+        elif len(selected_date) == 1:
+            start_date = end_date = selected_date[0]
 
     with col2:
         data_customer = new_database.get_all_data_customer(columns="nama")
@@ -323,13 +373,19 @@ with tab3:
     # AMBIL DATA
     # ======================
     df_penjualan = new_database.get_data_penjualan(
-        tanggal=selected_date,
+        start_date=start_date,
+        end_date=end_date,
         customer=selected_pelanggan,
         barang=selected_barang
     )
 
     if not df_penjualan.empty:
         df_penjualan['tanggal'] = pd.to_datetime(df_penjualan['tanggal']).dt.strftime('%d %b %Y')
+
+        if 'harga_satuan' in df_penjualan.columns:
+            df_penjualan['harga_satuan'] = df_penjualan['harga_satuan'].apply(
+                lambda x: f"Rp {x:,.0f}".replace(",", ".") if pd.notna(x) else "Rp 0"
+            )
 
         df_penjualan['subtotal'] = df_penjualan['subtotal'].apply(
             lambda x: f"Rp {x:,.0f}".replace(",", ".")
@@ -348,7 +404,7 @@ with tab3:
         df_penjualan.insert(0, 'Hapus', False)
 
         # Prepare kolom untuk ditampilkan (hide id)
-        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'kuantitas', 'subtotal', 'total_nota', 'top']].copy()
+        df_display = df_penjualan[['Hapus', 'no_nota', 'tanggal', 'nama_customer', 'nama_barang', 'satuan', 'kuantitas', 'harga_satuan', 'subtotal', 'total_nota', 'top']].copy()
 
         column_config = {
             "Hapus": st.column_config.CheckboxColumn("Pilih"),
@@ -368,7 +424,7 @@ with tab3:
             df_display,
             hide_index=True,
             use_container_width=True,
-            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "satuan", "kuantitas", "price", "subtotal", "total_nota", "top"],
+            disabled=["no_nota", "tanggal", "nama_customer", "nama_barang", "satuan", "kuantitas", "harga_satuan", "subtotal", "total_nota", "top"],
             column_config=column_config,
             key="penjualan_editor"
         )

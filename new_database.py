@@ -1195,7 +1195,7 @@ def get_penjualan_dates():
     return df['tanggal'].tolist()
 
 # Ambil data penjualan
-def get_data_penjualan(tanggal=None, customer=None, barang=None):
+def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=None):
     conn = get_connection()
 
     query = """
@@ -1207,6 +1207,7 @@ def get_data_penjualan(tanggal=None, customer=None, barang=None):
             b.nama AS nama_barang,
             b.satuan AS satuan,
             pd.kuantitas,
+            pd.harga_satuan,
             pd.subtotal,
             p.total AS total_nota,
             p.top AS top
@@ -1219,9 +1220,9 @@ def get_data_penjualan(tanggal=None, customer=None, barang=None):
 
     params = []
 
-    if tanggal:
-        query += " AND DATE(p.tanggal) = %s"
-        params.append(tanggal)
+    if start_date and end_date:
+        query += " AND DATE(p.tanggal) BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
 
     if customer and customer != "Semua":
         query += " AND c.nama = %s"
@@ -1534,7 +1535,7 @@ def get_pembelian_dates():
     return df['tanggal'].tolist()
 
 # Ambil data pembelian
-def get_data_pembelian(tanggal=None, supplier=None, barang=None):
+def get_data_pembelian(start_date=None, end_date=None, supplier=None, barang=None):
     conn = get_connection()
 
     query = """
@@ -1546,6 +1547,7 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
             b.nama AS nama_barang,
             b.satuan AS satuan,
             pd.kuantitas,
+            pd.harga_satuan,
             pd.subtotal,
             p.total AS total_nota,
             p.top AS top
@@ -1558,9 +1560,9 @@ def get_data_pembelian(tanggal=None, supplier=None, barang=None):
 
     params = []
 
-    if tanggal:
-        query += " AND DATE(p.tanggal) = %s"
-        params.append(tanggal)
+    if start_date and end_date:
+        query += " AND DATE(p.tanggal) BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
 
     if supplier and supplier != "Semua":
         query += " AND s.nama = %s"
