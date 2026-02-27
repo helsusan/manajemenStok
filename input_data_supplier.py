@@ -88,7 +88,7 @@ with tab1:
             selected_supplier_id = None
             selected_supplier_name = formatted_name if nama_supplier_baru else None
 
-            top_baru = st.number_input("Terms of Payment Default (Hari)", min_value=0, step=1)
+            top_baru = st.number_input("Terms of Payment (Hari)", min_value=0, step=1)
         
         else:  # Mode: Tambah ke existing supplier
             df_suppliers = new_database.get_all_data_supplier(["id", "nama"])
@@ -111,7 +111,7 @@ with tab1:
 
                 # Tampilkan & Edit TOP Supplier Existing
                 current_top = new_database.get_top_supplier(selected_supplier_name)
-                top_existing = st.number_input("Update Terms of Payment (Hari)", min_value=0, step=1, value=int(current_top))
+                top_existing = st.number_input("Terms of Payment (Hari)", min_value=0, step=1, value=int(current_top))
             
             nama_supplier_baru = None
     
@@ -530,6 +530,8 @@ with tab3:
         # Sort & Reset index agar urut abjad & kolom ID tidak muncul saat difilter
         df_suppliers = df_suppliers.sort_values("nama").reset_index(drop=True)
 
+        df_suppliers["top"] = df_suppliers["top"].astype(str)
+
         if df_suppliers.empty:
             st.warning("⚠️ Tidak ada supplier sesuai filter")
             st.stop()
@@ -552,9 +554,10 @@ with tab3:
                 required=True,
                 width="large"
             ),
-            "top": st.column_config.NumberColumn(
-                "Terms of Payment (Hari)",
-                required=True
+            "top": st.column_config.TextColumn(
+                "TOP",
+                required=True,
+                width="small"
             )
         }
 
@@ -586,16 +589,17 @@ with tab3:
                         for index, new_values in changes["edited_rows"].items():
                             id_supplier = int(df_suppliers.iloc[index]["id"])
                             new_nama = new_values.get("nama")
+                            new_top = int(new_values.get("top", df_suppliers.iloc[index]["top"]))
                             
                             if new_nama:
-                                new_database.update_supplier(id_supplier, new_nama)
+                                new_database.update_supplier(id_supplier, new_nama, new_top)
                     
                     # 3️⃣ TAMBAH DATA (jika ada)
-                    if changes["added_rows"]:
-                        for new_row in changes["added_rows"]:
-                            nama = new_row.get("nama", "").strip()
-                            if nama and not new_database.check_supplier_available(nama):
-                                new_database.insert_supplier(nama)
+                    # if changes["added_rows"]:
+                    #     for new_row in changes["added_rows"]:
+                    #         nama = new_row.get("nama", "").strip()
+                    #         if nama and not new_database.check_supplier_available(nama):
+                    #             new_database.insert_supplier(nama)
                 
                 st.session_state.edit_success = True
                 st.rerun()

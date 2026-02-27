@@ -88,7 +88,7 @@ with tab1:
             selected_customer_id = None
             selected_customer_name = formatted_name if nama_customer_baru else None
 
-            top_baru = st.number_input("Terms of Payment Default (Hari)", min_value=0, step=1)
+            top_baru = st.number_input("Terms of Payment (Hari)", min_value=0, step=1)
         
         else:  # Mode: Tambah ke existing customer
             df_customers = new_database.get_all_data_customer(["id", "nama"])
@@ -111,7 +111,7 @@ with tab1:
 
                 # Tampilkan & Edit TOP Customer Existing
                 current_top = new_database.get_top_customer(selected_customer_name)
-                top_existing = st.number_input("Update Terms of Payment (Hari)", min_value=0, step=1, value=int(current_top))
+                top_existing = st.number_input("Terms of Payment (Hari)", min_value=0, step=1, value=int(current_top))
             
             nama_customer_baru = None
     
@@ -531,6 +531,8 @@ with tab3:
         # Sort & Reset index agar urut abjad & kolom ID tidak muncul saat difilter
         df_customers = df_customers.sort_values("nama").reset_index(drop=True)
 
+        df_customers["top"] = df_customers["top"].astype(str)
+
         if df_customers.empty:
             st.warning("⚠️ Tidak ada customer sesuai filter")
             st.stop()
@@ -553,9 +555,10 @@ with tab3:
                 required=True,
                 width="large"
             ),
-            "top": st.column_config.NumberColumn(
-                "Terms of Payment (Hari)",
-                required=True
+            "top": st.column_config.TextColumn(
+                "TOP",
+                required=True,
+                width="small"
             )
         }
 
@@ -587,17 +590,17 @@ with tab3:
                         for index, new_values in changes["edited_rows"].items():
                             id_customer = int(df_customers.iloc[index]["id"])
                             new_nama = new_values.get("nama", df_customers.iloc[index]["nama"])
-                            new_top = new_values.get("top", df_customers.iloc[index]["top"])
+                            new_top = int(new_values.get("top", df_customers.iloc[index]["top"]))
                             
                             if new_nama:
                                 new_database.update_customer(id_customer, new_nama, new_top)
                     
                     # 3️⃣ TAMBAH DATA (jika ada)
-                    if changes["added_rows"]:
-                        for new_row in changes["added_rows"]:
-                            nama = new_row.get("nama", "").strip()
-                            if nama and not new_database.check_customer_available(nama):
-                                new_database.insert_customer(nama)
+                    # if changes["added_rows"]:
+                    #     for new_row in changes["added_rows"]:
+                    #         nama = new_row.get("nama", "").strip()
+                    #         if nama and not new_database.check_customer_available(nama):
+                    #             new_database.insert_customer(nama)
                 
                 st.session_state.edit_success = True
                 st.rerun()
