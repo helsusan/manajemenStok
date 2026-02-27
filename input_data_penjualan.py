@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import new_database
+import io
+from fpdf import FPDF
 
 st.set_page_config(
     page_title="Data Penjualan",
@@ -20,7 +22,7 @@ st.set_page_config(
 
 st.header("Data Penjualan")
 
-tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Penjualan"])
+tab1, tab2, tab3, tab4 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Penjualan", "🖨️ Print Nota"])
 
 # ================================================
 # TAB 1 : INPUT MANUAL
@@ -451,6 +453,216 @@ with tab3:
     else:
         st.warning("⚠️ Tidak ada data transaksi sesuai filter")
 
+# ================================================
+# TAB 4 : PRINT NOTA
+# ================================================
+
+with tab4:
+    st.subheader("🖨️ Print Nota Penjualan")
+
+    col_filter_print1, col_filter_print2 = st.columns(2)
+    
+    with col_filter_print1:
+        date_filter_print = st.date_input(
+            "📅 Tanggal Nota",
+            value=[],
+            help="Pilih nota berdasarkan tanggal",
+            key="print_date_filter"
+        )
+        start_date_p, end_date_p = None, None
+        if len(date_filter_print) == 2:
+            start_date_p, end_date_p = date_filter_print
+        elif len(date_filter_print) == 1:
+            start_date_p = end_date_p = date_filter_print[0]
+
+    with col_filter_print2:
+        list_nota = new_database.get_all_no_nota(start_date_p, end_date_p)
+        selected_nota = st.selectbox(
+            "Pilih No. Nota", 
+            ["-- Pilih Nota --"] + list_nota,
+            help="Pilih nota yang ingin dicetak"
+        )
+
+    if selected_nota != "-- Pilih Nota --":
+        # Ambil data spesifik untuk nota ini
+        df_cetak = new_database.get_data_penjualan(no_nota=selected_nota)
+
+        if not df_cetak.empty:
+            # Info Header Nota
+            tgl_nota = pd.to_datetime(df_cetak.iloc[0]['tanggal']).strftime('%d %b %Y')
+            cust_nota = df_cetak.iloc[0]['nama_customer']
+            total_nota = df_cetak.iloc[0]['total_nota']
+
+            st.markdown("---")
+
+            # ── HEADER NOTA (pakai komponen native Streamlit, bukan HTML mentah) ──
+            with st.container(border=True):
+                st.markdown("### 🏢 BERKAT MAJU BERSAMA")
+                st.caption("Email: berkatmajubersama99999@gmail.com  |  📞 0898-105-9090")
+                st.divider()
+
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    st.markdown(f"**NOTA:** No. {selected_nota}")
+                with col_right:
+                    st.markdown(f"**Tanggal:** {tgl_nota}")
+                    st.markdown(f"**Tuan/Toko:** {cust_nota}")
+
+                # Spasi antara info nota dan tabel
+                st.write("")
+
+                # Persiapkan tabel untuk preview dan export
+                df_table = df_cetak[['kuantitas', 'satuan', 'nama_barang', 'harga_satuan', 'subtotal']].copy()
+                df_table['Kuantitas'] = df_table['kuantitas'].astype(str) + " " + df_table['satuan'].fillna("").astype(str)
+
+                # Format harga untuk preview
+                df_table['Harga (Rp)'] = df_table['harga_satuan'].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+                df_table['Jumlah (Rp)'] = df_table['subtotal'].apply(lambda x: f"{x:,.0f}".replace(",", "."))
+
+                df_preview = (
+                    df_table[['Kuantitas', 'nama_barang', 'Harga (Rp)', 'Jumlah (Rp)']]
+                    .rename(columns={'nama_barang': 'Nama Barang'})
+                    .reset_index(drop=True)
+                )
+                df_preview.index += 1  # index mulai dari 1 (bukan 0)
+
+                # Tampilkan tabel dengan lebar kolom yang konsisten
+                st.dataframe(
+                    df_preview,
+                    use_container_width=True,
+                    column_config={
+                        "Kuantitas":   st.column_config.TextColumn("Kuantitas",   width="small"),
+                        "Nama Barang": st.column_config.TextColumn("Nama Barang", width="large"),
+                        "Harga (Rp)":  st.column_config.TextColumn("Harga (Rp)",  width="medium"),
+                        "Jumlah (Rp)": st.column_config.TextColumn("Jumlah (Rp)", width="medium"),
+                    }
+                )
+
+                # Baris total di kanan bawah
+                st.write("")
+                _, col_total = st.columns([3, 1])
+                with col_total:
+                    total_fmt = f"Rp {total_nota:,.0f}".replace(",", ".")
+                    st.markdown(
+                        f"<div style='text-align:right; font-size:18px; font-weight:bold; color:#d9534f;'>"
+                        f"Total: {total_fmt}</div>",
+                        unsafe_allow_html=True
+                    )
+
+            st.markdown("---")
+            
+            # ==============================
+            # BUTTON EXPORT EXCEL & PDF
+            # ==============================
+            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+
+            # 1. EXPORT TO EXCEL
+            output_excel = io.BytesIO()
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                workbook = writer.book
+                worksheet = workbook.add_worksheet('Nota')
+                
+                bold = workbook.add_format({'bold': True})
+                header_format = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2', 'border': 1, 'align': 'center'})
+                border_format = workbook.add_format({'border': 1})
+                num_format = workbook.add_format({'border': 1, 'num_format': '#,##0'})
+                
+                worksheet.write('A1', 'BERKAT MAJU BERSAMA', bold)
+                worksheet.write('A2', 'Email: berkatmajubersama99999@gmail.com')
+                worksheet.write('A3', '0898-105-9090')
+                
+                worksheet.write('A5', f'NOTA: No. {selected_nota}', bold)
+                worksheet.write('D5', f'Tanggal: {tgl_nota}')
+                worksheet.write('D6', f'Tuan/Toko: {cust_nota}')
+                
+                headers = ['Kuantitas', 'Nama Barang', 'Harga (Rp)', 'Jumlah (Rp)']
+                for col_num, data in enumerate(headers):
+                    worksheet.write(7, col_num, data, header_format)
+                
+                row = 8
+                for idx, item in df_table.iterrows():
+                    worksheet.write(row, 0, item['kuantitas'], border_format)
+                    worksheet.write(row, 1, item['nama_barang'], border_format)
+                    worksheet.write(row, 2, item['harga_satuan'], num_format)
+                    worksheet.write(row, 3, item['subtotal'], num_format)
+                    row += 1
+                
+                worksheet.write(row, 2, 'Total Rp.', bold)
+                worksheet.write(row, 3, total_nota, num_format)
+                
+                worksheet.set_column('A:A', 15)
+                worksheet.set_column('B:B', 40)
+                worksheet.set_column('C:D', 20)
+
+            excel_data = output_excel.getvalue()
+
+            with col_btn1:
+                st.download_button(
+                    label="📥 Download Excel",
+                    data=excel_data,
+                    file_name=f"Nota_{selected_nota}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            # 2. EXPORT TO PDF
+            class PDF(FPDF):
+                def header(self):
+                    self.set_font('Arial', 'B', 16)
+                    self.set_text_color(0, 86, 179)
+                    self.cell(0, 8, 'BERKAT MAJU BERSAMA', 0, 1, 'L')
+                    
+                    self.set_font('Arial', '', 10)
+                    self.set_text_color(50, 50, 50)
+                    self.cell(0, 5, 'Email: berkatmajubersama99999@gmail.com', 0, 1, 'L')
+                    self.cell(0, 5, '0898-105-9090', 0, 1, 'L')
+                    
+                    self.set_draw_color(0, 86, 179)
+                    self.line(10, 32, 200, 32)
+                    self.ln(10)
+
+            pdf = PDF()
+            pdf.add_page()
+            
+            pdf.set_font('Arial', 'B', 12)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(100, 8, f'NOTA: No. {selected_nota}', 0, 0, 'L')
+            
+            pdf.set_font('Arial', '', 11)
+            pdf.cell(90, 8, f'Tanggal: {tgl_nota}', 0, 1, 'R')
+            pdf.cell(190, 8, f'Tuan/Toko: {cust_nota}', 0, 1, 'R')
+            pdf.ln(5)
+
+            pdf.set_font('Arial', 'B', 11)
+            pdf.set_fill_color(217, 225, 242)
+            pdf.cell(30, 10, 'Kuantitas', 1, 0, 'C', fill=True)
+            pdf.cell(90, 10, 'Nama Barang', 1, 0, 'C', fill=True)
+            pdf.cell(35, 10, 'Harga (Rp)', 1, 0, 'C', fill=True)
+            pdf.cell(35, 10, 'Jumlah (Rp)', 1, 1, 'C', fill=True)
+
+            pdf.set_font('Arial', '', 11)
+            for idx, item in df_table.iterrows():
+                pdf.cell(30, 10, str(item['kuantitas']), 1, 0, 'C')
+                pdf.cell(90, 10, str(item['nama_barang'])[:45], 1, 0, 'L')
+                pdf.cell(35, 10, f"{item['harga_satuan']:,.0f}".replace(",", "."), 1, 0, 'R')
+                pdf.cell(35, 10, f"{item['subtotal']:,.0f}".replace(",", "."), 1, 1, 'R')
+
+            pdf.set_font('Arial', 'B', 12)
+            pdf.cell(120, 10, '', 0, 0)
+            pdf.cell(35, 10, 'Total Rp.', 1, 0, 'R', fill=True)
+            pdf.set_text_color(200, 0, 0)
+            pdf.cell(35, 10, f"{total_nota:,.0f}".replace(",", "."), 1, 1, 'R')
+
+            pdf_bytes = pdf.output(dest='S').encode('latin1')
+
+            with col_btn2:
+                st.download_button(
+                    label="📄 Download PDF",
+                    data=pdf_bytes,
+                    file_name=f"Nota_{selected_nota}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
 # Footer
 # st.markdown("---")

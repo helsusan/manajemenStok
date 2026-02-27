@@ -1195,7 +1195,7 @@ def get_penjualan_dates():
     return df['tanggal'].tolist()
 
 # Ambil data penjualan
-def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=None):
+def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=None, no_nota=None):
     conn = get_connection()
 
     query = """
@@ -1223,6 +1223,12 @@ def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=Non
     if start_date and end_date:
         query += " AND DATE(p.tanggal) BETWEEN %s AND %s"
         params.extend([start_date, end_date])
+    elif start_date:
+        query += " AND DATE(p.tanggal) >= %s"
+        params.append(start_date)
+    elif end_date:
+        query += " AND DATE(p.tanggal) <= %s"
+        params.append(end_date)
 
     if customer and customer != "Semua":
         query += " AND c.nama = %s"
@@ -1231,6 +1237,10 @@ def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=Non
     if barang and barang != "Semua":
         query += " AND b.nama = %s"
         params.append(barang)
+
+    if no_nota:
+        query += " AND p.no_nota = %s"
+        params.append(no_nota)
 
     query += " ORDER BY p.tanggal DESC, p.no_nota DESC"
 
@@ -1256,6 +1266,21 @@ def delete_penjualan(id_penjualan):
     finally:
         cursor.close()
         conn.close()
+
+# Fungsi baru untuk mengambil list no_nota unik
+def get_all_no_nota(start_date=None, end_date=None):
+    conn = get_connection()
+    query = "SELECT no_nota FROM penjualan WHERE 1=1"
+    params = []
+    
+    if start_date and end_date:
+        query += " AND DATE(tanggal) BETWEEN %s AND %s"
+        params.extend([start_date, end_date])
+        
+    query += " ORDER BY tanggal DESC, no_nota DESC"
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    return df['no_nota'].tolist()
 
 
 
@@ -1563,6 +1588,12 @@ def get_data_pembelian(start_date=None, end_date=None, supplier=None, barang=Non
     if start_date and end_date:
         query += " AND DATE(p.tanggal) BETWEEN %s AND %s"
         params.extend([start_date, end_date])
+    elif start_date:
+        query += " AND DATE(p.tanggal) >= %s"
+        params.append(start_date)
+    elif end_date:
+        query += " AND DATE(p.tanggal) <= %s"
+        params.append(end_date)
 
     if supplier and supplier != "Semua":
         query += " AND s.nama = %s"
