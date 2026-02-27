@@ -395,6 +395,8 @@ with tab3:
     )
 
     if not df_pembelian.empty:
+        total_semua_pembelian = df_pembelian['subtotal'].sum()
+
         df_pembelian['tanggal'] = pd.to_datetime(df_pembelian['tanggal']).dt.strftime('%d %b %Y')
 
         if 'harga_satuan' in df_pembelian.columns:
@@ -443,6 +445,16 @@ with tab3:
             column_config=column_config,
             key="pembelian_editor"
         )
+
+        st.write("")
+        _, col_total_bawah = st.columns([3, 1])
+        with col_total_bawah:
+            total_fmt = f"Rp {total_semua_pembelian:,.0f}".replace(",", ".")
+            st.markdown(
+                f"<div style='text-align:right; font-size:18px; font-weight:bold; color:#28a745;'>"
+                f"Total: <br>{total_fmt}</div>",
+                unsafe_allow_html=True
+            )
 
         # Ambil baris yang dicentang
         selected_rows = edited_df[edited_df['Hapus'] == True]
