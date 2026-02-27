@@ -6,21 +6,19 @@ import new_database
 
 st.set_page_config(page_title="Net Profit Analysis", page_icon="💰", layout="wide")
 
-st.title("💰 Laporan Net Profit (Laba Bersih)")
-# st.markdown("Halaman ini menghitung Laba Bersih dengan mengurangi **Gross Profit** (Laba Kotor dari penjualan dikurangi HPP) dengan **Biaya Tambahan**.")
+st.title("💰 Net Profit Analysis")
 
-# ==================== FILTER PERIODE ====================
-st.markdown("### 🔍 Filter Periode")
-col_filter1, col_filter2 = st.columns(2)
+selected_date = st.date_input(
+    "📅 Tanggal",
+    value=[],
+    help="Kosongkan untuk tampilkan semua."
+)
 
-with col_filter1:
-    start_date = st.date_input("Dari Tanggal", value=datetime.now().date() - timedelta(days=30))
-with col_filter2:
-    end_date = st.date_input("Sampai Tanggal", value=datetime.now().date())
-
-if start_date > end_date:
-    st.error("⚠️ Tanggal 'Dari' tidak boleh lebih besar dari 'Sampai'")
-    st.stop()
+start_date, end_date = None, None
+if len(selected_date) == 2:
+    start_date, end_date = selected_date
+elif len(selected_date) == 1:
+    start_date = end_date = selected_date[0]
 
 st.markdown("---")
 

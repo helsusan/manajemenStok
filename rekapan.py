@@ -4,13 +4,10 @@ import plotly.express as px
 import new_database
 from datetime import datetime
 
-st.set_page_config(page_title="Dashboard Keuangan", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Analisis Keuangan", page_icon="💳", layout="wide")
 
-st.title("📊 Rekapan & Analisis Keuangan")
-# st.caption("Ringkasan status Hutang (AP) dan Piutang (AR) Perusahaan")
+st.title("💳 Rekapan & Analisis Keuangan")
 
-# ================= DATA FETCHING =================
-# Mengambil ringkasan dari database
 summ_piutang, overdue_piutang = new_database.get_analisis_summary("piutang")
 summ_hutang, overdue_hutang = new_database.get_analisis_summary("hutang")
 
@@ -69,7 +66,7 @@ def show_aging_table(jenis):
     
     # Tampilkan dropdown filter
     selected_partner = st.selectbox(
-        f"🔍 Filter {label_partner}",
+        f"🔍 Nama {label_partner}",
         options=partner_list,
         key=f"filter_{jenis}"
     )

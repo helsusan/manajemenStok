@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
-import new_database  # Pastikan file new_database.py ada di folder yang sama
+import new_database
+from io import BytesIO
 
 st.set_page_config(
     page_title="Gross Profit Analysis",
@@ -10,21 +11,17 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📊 Gross Profit Analysis Dashboard")
+st.title("📊 Gross Profit Analysis")
 
 # ==================== FILTER SECTION (MAIN PAGE) ====================
-# Menggunakan Expander agar filter bisa disembunyikan/dimunculkan, default terbuka
-# with st.expander("🔍 Filter Data & Periode", expanded=True):
-# Bagi layout menjadi 3 kolom
 col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 2])
 
 with col_filter1:
     st.subheader("1. Periode")
-    st.markdown("**Ini teks bold biasa**")
     periode_option = st.radio(
         "Pilih Tipe Periode:",
-        ["Keseluruhan", "Per Bulan", "Custom Range"],
-        label_visibility="collapsed" # Menyembunyikan label text karena sudah ada subheader
+        ["Keseluruhan", "Per Bulan", "Custom Range Tanggal"],
+        label_visibility="collapsed"
     )
 
 start_date = None
@@ -33,36 +30,53 @@ end_date = None
 with col_filter2:
     st.subheader("2. Rentang Waktu")
     if periode_option == "Per Bulan":
-        selected_month = st.date_input(
-            "Pilih Bulan:",
-            value=datetime.now(),
-            max_value=datetime.now()
-        )
-        # Logic ambil awal & akhir bulan
-        start_date = selected_month.replace(day=1)
-        if selected_month.month == 12:
-            end_date = selected_month.replace(day=31)
+        col_b, col_t = st.columns(2)
+        
+        bulan_list = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", 
+                      "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        
+        with col_b:
+            selected_month_name = st.selectbox("Pilih Bulan:", bulan_list, index=datetime.now().month - 1)
+            
+        with col_t:
+            current_year = datetime.now().year
+            # Pilihan tahun dari 5 tahun lalu hingga tahun saat ini
+            selected_year = st.selectbox("Pilih Tahun:", range(current_year - 5, current_year + 1), index=5)
+            
+        selected_month_int = bulan_list.index(selected_month_name) + 1
+        
+        start_date = datetime(selected_year, selected_month_int, 1).date()
+        if selected_month_int == 12:
+            end_date = datetime(selected_year, 12, 31).date()
         else:
-            end_date = (selected_month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            end_date = (datetime(selected_year, selected_month_int, 28) + timedelta(days=4)).replace(day=1).date() - timedelta(days=1)
         
         st.info(f"📅 {start_date.strftime('%d %b %Y')} - {end_date.strftime('%d %b %Y')}")
 
-    elif periode_option == "Custom Range":
-        start_date = st.date_input("Dari Tanggal:", value=datetime.now() - timedelta(days=30))
-        end_date = st.date_input("Sampai Tanggal:", value=datetime.now())
+    elif periode_option == "Custom Range Tanggal":
+        selected_date = st.date_input(
+            "Tanggal",
+            value=[],
+        )
+
+        start_date, end_date = None, None
+        if len(selected_date) == 2:
+            start_date, end_date = selected_date
+        elif len(selected_date) == 1:
+            start_date = end_date = selected_date[0]
     
-    else: # Keseluruhan
+    else:
         st.info("📅 Menampilkan semua data historis")
 
 with col_filter3:
     st.subheader("3. Filter Barang")
-    # Ambil list barang dari database
     try:
         barang_list = new_database.get_barang_list_simple()
         filter_barang = st.multiselect(
-            "Pilih Barang (Kosongkan untuk memilih semua):",
+            "Nama Barang",
             options=barang_list['nama'].tolist(),
-            default=None
+            default=None,
+            help="Kosongkan untuk memilih semua."
         )
     except Exception as e:
         st.error("Gagal memuat list barang. Pastikan database terkoneksi.")
@@ -127,11 +141,10 @@ try:
             st.markdown("---")
             
             # === TABS VISUALISASI ===
-            tab1, tab2, tab3, tab4 = st.tabs([
-                "📋 Tabel Detail", 
-                "📊 Top Products", 
-                "📈 Visualisasi",
-                "📐 Detail Perhitungan"
+            tab1, tab2, tab3 = st.tabs([
+                "📋 Tabel Gross Profit", 
+                "📐 Detail Perhitungan",
+                "📊 Visualisasi"
             ])
             
             # TAB 1: TABEL
@@ -162,144 +175,24 @@ try:
                     hide_index=True
                 )
                 
-                # Download CSV
-                csv = gp_df.to_csv(index=False)
+                # Download Excel
+                output = BytesIO()
+                gp_df.to_excel(output, index=False, engine='openpyxl')
+                output.seek(0)
+                
                 st.download_button(
-                    label="📥 Download Data (CSV)",
-                    data=csv,
-                    file_name=f"gross_profit_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
+                    label="📥 Download Data (Excel)",
+                    data=output,
+                    file_name=f"gross profit_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-            
-            # TAB 2: TOP PRODUCTS
+
+            # TAB 2 : DETAIL PERHITUNGAN GROSS PROFIT
             with tab2:
-                st.subheader("Top 10 Products by Gross Profit")
-                
-                col_chart1, col_chart2 = st.columns(2)
-                
-                with col_chart1:
-                    top10_profit = gp_df.nlargest(10, 'gross_profit')
-                    fig1 = px.bar(
-                        top10_profit,
-                        x='gross_profit',
-                        y='nama_barang',
-                        orientation='h',
-                        title='Top 10 by Gross Profit (Rp)',
-                        labels={'gross_profit': 'Gross Profit', 'nama_barang': 'Barang'},
-                        color='gross_profit',
-                        color_continuous_scale='Greens'
-                    )
-                    fig1.update_layout(showlegend=False, yaxis={'categoryorder':'total ascending'})
-                    st.plotly_chart(fig1, use_container_width=True)
-                
-                with col_chart2:
-                    top10_margin = gp_df.nlargest(10, 'margin_persen')
-                    fig2 = px.bar(
-                        top10_margin,
-                        x='margin_persen',
-                        y='nama_barang',
-                        orientation='h',
-                        title='Top 10 by Margin (%)',
-                        labels={'margin_persen': 'Margin (%)', 'nama_barang': 'Barang'},
-                        color='margin_persen',
-                        color_continuous_scale='Blues'
-                    )
-                    fig2.update_layout(showlegend=False, yaxis={'categoryorder':'total ascending'})
-                    st.plotly_chart(fig2, use_container_width=True)
-            
-            # TAB 3: SCATTER & PIE
-            with tab3:
-                st.subheader("Visualisasi Gross Profit")
-                
-                col_vis1, col_vis2 = st.columns([2, 1])
-
-                with col_vis1:
-                    fig3 = px.scatter(
-                        gp_df,
-                        x='total_penjualan',
-                        y='gross_profit',
-                        size='qty_terjual',
-                        color='margin_persen',
-                        hover_data=['nama_barang'],
-                        title='Penjualan vs Gross Profit (Ukuran Bubble = Qty Terjual)',
-                        labels={
-                            'total_penjualan': 'Total Penjualan (Rp)',
-                            'gross_profit': 'Gross Profit (Rp)',
-                            'margin_persen': 'Margin (%)'
-                        },
-                        color_continuous_scale='RdYlGn'
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
-                
-                with col_vis2:
-                    fig4 = px.pie(
-                        gp_df.nlargest(10, 'gross_profit'),
-                        values='gross_profit',
-                        names='nama_barang',
-                        title='Kontribusi Profit - Top 10'
-                    )
-                    st.plotly_chart(fig4, use_container_width=True)
-            
-            # TAB 4: DETAIL PER BARANG
-            # with tab4:
-                # st.subheader("Detail Analisis per Barang")
-                
-                # selected_barang = st.selectbox(
-                #     "Pilih Barang untuk Detail:",
-                #     options=gp_df['nama_barang'].tolist()
-                # )
-                
-                # if selected_barang:
-                #     barang_data = gp_df[gp_df['nama_barang'] == selected_barang].iloc[0]
-                    
-                #     c1, c2, c3 = st.columns(3)
-                #     with c1:
-                #         st.metric("Total Penjualan", f"Rp {barang_data['total_penjualan']:,.0f}".replace(",", "."))
-                #         st.metric("Qty Terjual", f"{barang_data['qty_terjual']:,.0f}")
-                    
-                #     with c2:
-                #         st.metric("Total HPP", f"Rp {barang_data['total_hpp']:,.0f}".replace(",", "."))
-                #         hpp_unit = barang_data['total_hpp']/barang_data['qty_terjual'] if barang_data['qty_terjual'] > 0 else 0
-                #         st.metric("HPP per Unit (Avg)", f"Rp {hpp_unit:,.0f}".replace(",", "."))
-                    
-                #     with c3:
-                #         st.metric("Gross Profit", f"Rp {barang_data['gross_profit']:,.0f}".replace(",", "."))
-                #         st.metric("Margin", f"{barang_data['margin_persen']:.2f}%")
-                    
-                #     st.markdown("---")
-                #     # Tampilkan detail transaksi penjualan untuk barang ini
-                #     st.markdown(f"#### Riwayat Penjualan: {selected_barang}")
-                #     barang_id = barang_data['id_barang']
-                #     penjualan_detail = penjualan_df[penjualan_df['id_barang'] == barang_id].copy()
-
-                #     # Formatting Tanggal (TAMBAHAN)
-                #     penjualan_detail['tanggal'] = pd.to_datetime(penjualan_detail['tanggal']).dt.strftime('%d %b %Y')
-                    
-                #     # Formatting untuk tabel kecil
-                #     penjualan_detail['subtotal_fmt'] = penjualan_detail['subtotal'].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
-                #     penjualan_detail['harga_fmt'] = penjualan_detail['harga_satuan'].apply(lambda x: f"Rp {x:,.0f}".replace(",", "."))
-                    
-                #     st.dataframe(
-                #         penjualan_detail[['tanggal', 'no_nota', 'kuantitas', 'harga_fmt', 'subtotal_fmt']].rename(columns={
-                #             'tanggal': 'Tanggal',
-                #             'no_nota': 'No. Nota',
-                #             'kuantitas': 'Qty',
-                #             'harga_fmt': 'Harga Jual',
-                #             'subtotal_fmt': 'Subtotal'
-                #         }),
-                #         use_container_width=True,
-                #         hide_index=True
-                #     )
-
-            # TAB 4 : DETAIL PERHITUNGAN GROSS PROFIT
-            with tab4:
                 st.subheader("📐 Detail Perhitungan")
-    
-                # st.info("💡 **Kartu stok ini menampilkan tracking FIFO untuk setiap transaksi penjualan**. "
-                #         "Setiap baris menunjukkan dari pembelian mana HPP diambil (metode FIFO).")
                 
                 selected_barang = st.selectbox(
-                    "Pilih Barang untuk Kartu Stok:",
+                    "Pilih Barang",
                     options=gp_df['nama_barang'].tolist(),
                     key='kartu_stok_barang'
                 )
@@ -307,8 +200,7 @@ try:
                 if selected_barang:
                     barang_data = gp_df[gp_df['nama_barang'] == selected_barang].iloc[0]
                     barang_id = barang_data['id_barang']
-                    
-                    # === SUMMARY CARDS ===
+
                     col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
@@ -440,20 +332,76 @@ try:
                         # === DOWNLOAD BUTTON ===
                         st.markdown("---")
                         
-                        # Prepare CSV export
-                        export_df = kartu_stok.copy()
-                        export_df['tanggal'] = pd.to_datetime(export_df['tanggal']).dt.strftime('%Y-%m-%d')
+                        # Prepare Excel export
+                        output = BytesIO()
+                        gp_df.to_excel(output, index=False, engine='openpyxl')
+                        output.seek(0)
                         
-                        csv = export_df.to_csv(index=False)
                         st.download_button(
-                            label=f"📥 Download Kartu Stok {selected_barang} (CSV)",
-                            data=csv,
-                            file_name=f"kartu_stok_{selected_barang}_{datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
+                            label="📥 Download Data (Excel)",
+                            data=output,
+                            file_name=f"gross profit_{selected_barang}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                         
                     else:
                         st.warning("⚠️ Tidak ada data kartu stok untuk barang ini.")
+
+            # TAB 3: TOP PRODUCTS + VISUALISASI
+            with tab3:
+                st.subheader("Top 10 Products")
+                
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    top10_profit = gp_df.nlargest(10, 'gross_profit')
+                    fig1 = px.bar(
+                        top10_profit,
+                        x='gross_profit',
+                        y='nama_barang',
+                        orientation='h',
+                        title='Top 10 by Gross Profit (Rp)',
+                        labels={'gross_profit': 'Gross Profit', 'nama_barang': 'Barang'},
+                        color='gross_profit',
+                        color_continuous_scale='Greens'
+                    )
+                    fig1.update_layout(showlegend=False, yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig1, use_container_width=True)
+                
+                with col_chart2:
+                    top10_margin = gp_df.nlargest(10, 'margin_persen')
+                    fig2 = px.bar(
+                        top10_margin,
+                        x='margin_persen',
+                        y='nama_barang',
+                        orientation='h',
+                        title='Top 10 by Margin (%)',
+                        labels={'margin_persen': 'Margin (%)', 'nama_barang': 'Barang'},
+                        color='margin_persen',
+                        color_continuous_scale='Blues'
+                    )
+                    fig2.update_layout(showlegend=False, yaxis={'categoryorder':'total ascending'})
+                    st.plotly_chart(fig2, use_container_width=True)
+                
+                st.markdown("---")
+                st.subheader("Penjualan vs Gross Profit")
+                
+                fig3 = px.scatter(
+                    gp_df,
+                    x='total_penjualan',
+                    y='gross_profit',
+                    size='qty_terjual',
+                    color='margin_persen',
+                    hover_data=['nama_barang'],
+                    title='Penjualan vs Gross Profit (Ukuran Bubble = Qty Terjual)',
+                    labels={
+                        'total_penjualan': 'Total Penjualan (Rp)',
+                        'gross_profit': 'Gross Profit (Rp)',
+                        'margin_persen': 'Margin (%)'
+                    },
+                    color_continuous_scale='RdYlGn'
+                )
+                st.plotly_chart(fig3, use_container_width=True)
 
 except Exception as e:
     st.error(f"❌ Terjadi kesalahan: {str(e)}")
