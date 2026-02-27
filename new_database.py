@@ -2762,6 +2762,40 @@ def get_mutasi_harian(id_barang, start_date, end_date):
     conn.close()
     return df
 
+def get_stok_seluruh_barang(target_date):
+    """Mengambil akumulasi stok seluruh barang berdasarkan batas tanggal tertentu"""
+    conn = get_connection()
+    
+    query = """
+        SELECT 
+            b.nama AS 'Nama Barang',
+            COALESCE(SUM(masuk.qty), 0) AS 'Total Masuk',
+            COALESCE(SUM(keluar.qty), 0) AS 'Total Keluar',
+            (COALESCE(SUM(masuk.qty), 0) - COALESCE(SUM(keluar.qty), 0)) AS 'Stok Akhir'
+        FROM barang b
+        LEFT JOIN (
+            SELECT pd.id_barang, SUM(pd.kuantitas) as qty
+            FROM pembelian_detail pd
+            JOIN pembelian p ON pd.id_pembelian = p.id
+            WHERE p.tipe = 'Barang' AND p.tanggal <= %s
+            GROUP BY pd.id_barang
+        ) masuk ON b.id = masuk.id_barang
+        LEFT JOIN (
+            SELECT pjd.id_barang, SUM(pjd.kuantitas) as qty
+            FROM penjualan_detail pjd
+            JOIN penjualan pj ON pjd.id_penjualan = pj.id
+            WHERE pj.tanggal <= %s
+            GROUP BY pjd.id_barang
+        ) keluar ON b.id = keluar.id_barang
+        GROUP BY b.id, b.nama
+        ORDER BY b.nama
+    """
+    
+    df = pd.read_sql(query, conn, params=(target_date, target_date))
+    conn.close()
+    
+    return df
+
 
 
 # ================================================
