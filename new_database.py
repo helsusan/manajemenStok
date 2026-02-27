@@ -1195,7 +1195,7 @@ def get_penjualan_dates():
     return df['tanggal'].tolist()
 
 # Ambil data penjualan
-def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=None, no_nota=None):
+def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=None, no_nota=None, id_penjualan=None):
     conn = get_connection()
 
     query = """
@@ -1242,6 +1242,10 @@ def get_data_penjualan(start_date=None, end_date=None, customer=None, barang=Non
         query += " AND p.no_nota = %s"
         params.append(no_nota)
 
+    if id_penjualan:
+        query += " AND p.id = %s"
+        params.append(id_penjualan)
+
     query += " ORDER BY p.tanggal DESC, p.no_nota DESC"
 
     df = pd.read_sql(query, conn, params=params)
@@ -1281,6 +1285,31 @@ def get_all_no_nota(start_date=None, end_date=None):
     df = pd.read_sql(query, conn, params=params)
     conn.close()
     return df['no_nota'].tolist()
+
+# FUNGSI BARU UNTUK MENGAMBIL DICTIONARY (Display Text -> ID Penjualan)
+def get_list_nota_untuk_print():
+    conn = get_connection()
+    query = """
+        SELECT p.id, p.no_nota, p.tanggal, c.nama as nama_customer
+        FROM penjualan p
+        LEFT JOIN customer c ON p.id_customer = c.id
+        WHERE 1=1
+    """
+    params = []
+        
+    query += " ORDER BY p.tanggal DESC, p.no_nota DESC"
+    df = pd.read_sql(query, conn, params=params)
+    conn.close()
+    
+    if df.empty:
+        return {}
+        
+    # Buat format tampilan: "PJ-001 | 02 Feb 2025 | Toko A"
+    df['tanggal_str'] = pd.to_datetime(df['tanggal']).dt.strftime('%d %b %Y')
+    df['display'] = df['no_nota'] + " | " + df['tanggal_str'] + " | " + df['nama_customer'].fillna('-')
+    
+    # Kembalikan sebagai dictionary { 'display_text' : id_penjualan }
+    return dict(zip(df['display'], df['id']))
 
 
 

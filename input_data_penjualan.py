@@ -382,6 +382,8 @@ with tab3:
     )
 
     if not df_penjualan.empty:
+        total_semua_penjualan = df_penjualan['subtotal'].sum()
+
         df_penjualan['tanggal'] = pd.to_datetime(df_penjualan['tanggal']).dt.strftime('%d %b %Y')
 
         if 'harga_satuan' in df_penjualan.columns:
@@ -431,6 +433,16 @@ with tab3:
             key="penjualan_editor"
         )
 
+        st.write("")
+        _, col_total_bawah = st.columns([3, 1])
+        with col_total_bawah:
+            total_fmt = f"Rp {total_semua_penjualan:,.0f}".replace(",", ".")
+            st.markdown(
+                f"<div style='text-align:right; font-size:18px; font-weight:bold; color:#28a745;'>"
+                f"Total: <br>{total_fmt}</div>",
+                unsafe_allow_html=True
+            )
+
         # Ambil baris yang dicentang
         selected_rows = edited_df[edited_df['Hapus'] == True]
 
@@ -460,44 +472,33 @@ with tab3:
 with tab4:
     st.subheader("🖨️ Print Nota Penjualan")
 
-    col_filter_print1, col_filter_print2 = st.columns(2)
+    # Gunakan fungsi baru yang mengembalikan dictionary
+    dict_nota = new_database.get_list_nota_untuk_print()
+    list_nota_display = ["-- Pilih Nota --"] + list(dict_nota.keys())
     
-    with col_filter_print1:
-        date_filter_print = st.date_input(
-            "📅 Tanggal Nota",
-            value=[],
-            help="Pilih nota berdasarkan tanggal",
-            key="print_date_filter"
-        )
-        start_date_p, end_date_p = None, None
-        if len(date_filter_print) == 2:
-            start_date_p, end_date_p = date_filter_print
-        elif len(date_filter_print) == 1:
-            start_date_p = end_date_p = date_filter_print[0]
+    selected_nota_display = st.selectbox(
+        "Pilih No. Nota", 
+        list_nota_display,
+        help="Pilih nota yang ingin dicetak"
+    )
 
-    with col_filter_print2:
-        list_nota = new_database.get_all_no_nota(start_date_p, end_date_p)
-        selected_nota = st.selectbox(
-            "Pilih No. Nota", 
-            ["-- Pilih Nota --"] + list_nota,
-            help="Pilih nota yang ingin dicetak"
-        )
+    if selected_nota_display != "-- Pilih Nota --":
+        # Ambil ID Penjualan unik dari dictionary
+        selected_id_penjualan = dict_nota[selected_nota_display]
 
-    if selected_nota != "-- Pilih Nota --":
-        # Ambil data spesifik untuk nota ini
-        df_cetak = new_database.get_data_penjualan(no_nota=selected_nota)
+        # Ambil data spesifik MENGGUNAKAN ID PENJUALAN
+        df_cetak = new_database.get_data_penjualan(id_penjualan=selected_id_penjualan)
 
         if not df_cetak.empty:
             # Info Header Nota
+            selected_nota = df_cetak.iloc[0]['no_nota'] # Ambil no_nota bersih untuk nama file & text rendering
             tgl_nota = pd.to_datetime(df_cetak.iloc[0]['tanggal']).strftime('%d %b %Y')
             cust_nota = df_cetak.iloc[0]['nama_customer']
             total_nota = df_cetak.iloc[0]['total_nota']
 
-            st.markdown("---")
-
             # ── HEADER NOTA (pakai komponen native Streamlit, bukan HTML mentah) ──
             with st.container(border=True):
-                st.markdown("### 🏢 BERKAT MAJU BERSAMA")
+                st.markdown("### BERKAT MAJU BERSAMA")
                 st.caption("Email: berkatmajubersama99999@gmail.com  |  📞 0898-105-9090")
                 st.divider()
 
@@ -506,7 +507,7 @@ with tab4:
                     st.markdown(f"**NOTA:** No. {selected_nota}")
                 with col_right:
                     st.markdown(f"**Tanggal:** {tgl_nota}")
-                    st.markdown(f"**Tuan/Toko:** {cust_nota}")
+                    st.markdown(f"**Toko:** {cust_nota}")
 
                 # Spasi antara info nota dan tabel
                 st.write("")
