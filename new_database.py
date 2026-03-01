@@ -100,7 +100,7 @@ def get_barang_id(nama_barang):
 
 # Input data barang ke database
 # Bisa dipanggil manual 1x, atau dipanggil di dalam loop Excel berkali-kali
-def insert_barang(nama, satuan=None, model_prediksi="Mean", p=None, d=None, q=None):
+def insert_barang(nama, satuan=None):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -110,15 +110,6 @@ def insert_barang(nama, satuan=None, model_prediksi="Mean", p=None, d=None, q=No
             raise ValueError("Nama barang tidak boleh kosong")
         
         nama = str(nama).strip()
-        
-        # Default Model jika None/Invalid
-        if pd.isna(model_prediksi) or str(model_prediksi).strip() == "":
-            model_prediksi = "Mean"
-            
-        if str(model_prediksi).upper() == "ARIMA":
-            model_prediksi = "ARIMA"
-        else:
-            model_prediksi = "Mean"
 
         # Cek Duplikasi
         cursor.execute("SELECT id FROM barang WHERE nama = %s", (nama,))
@@ -127,17 +118,11 @@ def insert_barang(nama, satuan=None, model_prediksi="Mean", p=None, d=None, q=No
 
         # Insert Query
         query = """
-            INSERT INTO barang (nama, satuan, model_prediksi, p, d, q)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO barang (nama, satuan)
+            VALUES (%s, %s)
         """
-        
-        # Handle nilai NaN dari Excel supaya jadi None (NULL) di database
-        def clean_val(v):
-            if pd.isna(v) or v == "": return None
-            try: return int(float(v))
-            except: return None
 
-        cursor.execute(query, (nama, satuan, model_prediksi, clean_val(p), clean_val(d), clean_val(q)))
+        cursor.execute(query, (nama, satuan))
         conn.commit()
         
         return True, f"Barang '{nama}' berhasil disimpan"
@@ -150,21 +135,17 @@ def insert_barang(nama, satuan=None, model_prediksi="Mean", p=None, d=None, q=No
         conn.close()
 
 # Update isi tabel barang
-def update_barang(id_barang, nama, satuan, model_prediksi, p, d, q):
+def update_barang(id_barang, nama, satuan):
     conn = get_connection()
     cursor = conn.cursor()
 
     query = """
         UPDATE barang
         SET nama = %s,
-            satuan = %s,
-            model_prediksi = %s,
-            p = %s,
-            d = %s,
-            q = %s
+            satuan = %s
         WHERE id = %s
     """
-    cursor.execute(query, (nama, satuan, model_prediksi, p, d, q, int(id_barang)))
+    cursor.execute(query, (nama, satuan, int(id_barang)))
 
     conn.commit()
     cursor.close()
@@ -420,7 +401,7 @@ def check_cust_pricelist_exists(id_customer, id_barang):
     return result is not None
 
 # Insert / update customer pricelist
-def upsert_customer_pricelist(id_customer, id_barang, harga):
+def upsert_customer_pricelist(id_customer, id_barang, harga, updated_at=None):
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -435,19 +416,20 @@ def upsert_customer_pricelist(id_customer, id_barang, harga):
         
         if existing:
             # Update existing
-            update_query = """
-                UPDATE customer_pricelist 
-                SET harga = %s, updated_at = NOW()
-                WHERE id = %s
-            """
-            cursor.execute(update_query, (int(harga), existing[0]))
+            if updated_at:
+                update_query = "UPDATE customer_pricelist SET harga = %s, updated_at = %s WHERE id = %s"
+                cursor.execute(update_query, (int(harga), updated_at, existing[0]))
+            else:
+                update_query = "UPDATE customer_pricelist SET harga = %s, updated_at = NOW() WHERE id = %s"
+                cursor.execute(update_query, (int(harga), existing[0]))
         else:
             # Insert new
-            insert_query = """
-                INSERT INTO customer_pricelist (id_customer, id_barang, harga, updated_at)
-                VALUES (%s, %s, %s, NOW())
-            """
-            cursor.execute(insert_query, (int(id_customer), int(id_barang), int(harga)))
+            if updated_at:
+                insert_query = "INSERT INTO customer_pricelist (id_customer, id_barang, harga, updated_at) VALUES (%s, %s, %s, %s)"
+                cursor.execute(insert_query, (int(id_customer), int(id_barang), int(harga), updated_at))
+            else:
+                insert_query = "INSERT INTO customer_pricelist (id_customer, id_barang, harga, updated_at) VALUES (%s, %s, %s, NOW())"
+                cursor.execute(insert_query, (int(id_customer), int(id_barang), int(harga)))
         
         conn.commit()
         return True
@@ -728,7 +710,7 @@ def check_supp_pricelist_exists(id_supplier, id_barang):
     return result is not None
 
 # Insert / update supplier pricelist
-def upsert_supplier_pricelist(id_supplier, id_barang, harga):
+def upsert_supplier_pricelist(id_supplier, id_barang, harga, updated_at=None):
     conn = get_connection()
     cursor = conn.cursor()
    
@@ -743,19 +725,20 @@ def upsert_supplier_pricelist(id_supplier, id_barang, harga):
        
         if existing:
             # Update existing
-            update_query = """
-                UPDATE supplier_pricelist
-                SET harga = %s, updated_at = NOW()
-                WHERE id = %s
-            """
-            cursor.execute(update_query, (int(harga), existing[0]))
+            if updated_at:
+                update_query = "UPDATE supplier_pricelist SET harga = %s, updated_at = %s WHERE id = %s"
+                cursor.execute(update_query, (int(harga), updated_at, existing[0]))
+            else:
+                update_query = "UPDATE supplier_pricelist SET harga = %s, updated_at = NOW() WHERE id = %s"
+                cursor.execute(update_query, (int(harga), existing[0]))
         else:
             # Insert new
-            insert_query = """
-                INSERT INTO supplier_pricelist (id_supplier, id_barang, harga, updated_at)
-                VALUES (%s, %s, %s, NOW())
-            """
-            cursor.execute(insert_query, (int(id_supplier), int(id_barang), int(harga)))
+            if updated_at:
+                insert_query = "INSERT INTO supplier_pricelist (id_supplier, id_barang, harga, updated_at) VALUES (%s, %s, %s, %s)"
+                cursor.execute(insert_query, (int(id_supplier), int(id_barang), int(harga), updated_at))
+            else:
+                insert_query = "INSERT INTO supplier_pricelist (id_supplier, id_barang, harga, updated_at) VALUES (%s, %s, %s, NOW())"
+                cursor.execute(insert_query, (int(id_supplier), int(id_barang), int(harga)))
        
         conn.commit()
         return True

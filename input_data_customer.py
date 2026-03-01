@@ -292,7 +292,7 @@ with tab2:
     with st.expander("ℹ️ Format file Excel data customer & pricelist"):
         st.write("""
         - Kolom Wajib: `Nama`
-        - Kolom Opsional: `TOP`
+        - Kolom Opsional: `TOP`, `Update Terakhir`
         - Kolom Pricelist: `Barang`, `Harga`
         - Penulisan data pricelist, setiap baris = 1 customer + 1 barang + 1 harga
         - Customer yang sama bisa muncul di banyak baris dengan barang berbeda
@@ -329,7 +329,8 @@ with tab2:
                 "NAMA": "Nama",
                 "TOP": "TOP",
                 "BARANG": "Barang",
-                "HARGA": "Harga"
+                "HARGA": "Harga",
+                "UPDATE TERAKHIR": "Update Terakhir"
             }
 
             available_cols = []
@@ -408,8 +409,19 @@ with tab2:
                                     error_count += 1
                                     errors.append(f"Baris {idx+1}: Data sudah ada di database (Harga sama: {int(harga)})")
                                     continue
+
+                                # Ambil nilai Update Terakhir (jika ada di file Excel)
+                                updated_at_val = None
+                                if "Update Terakhir" in df.columns:
+                                    raw_date = row.get("Update Terakhir")
+                                    if pd.notna(raw_date):
+                                        try:
+                                            # Format ke YYYY-MM-DD untuk disimpan di database
+                                            updated_at_val = pd.to_datetime(raw_date).strftime('%Y-%m-%d')
+                                        except:
+                                            updated_at_val = None
                                 
-                                if new_database.upsert_customer_pricelist(id_customer, id_barang, int(harga)):
+                                if new_database.upsert_customer_pricelist(id_customer, id_barang, int(harga), updated_at=updated_at_val):
                                     success_count += 1
                                 else:
                                     error_count += 1
@@ -594,14 +606,7 @@ with tab3:
                             
                             if new_nama:
                                 new_database.update_customer(id_customer, new_nama, new_top)
-                    
-                    # 3️⃣ TAMBAH DATA (jika ada)
-                    # if changes["added_rows"]:
-                    #     for new_row in changes["added_rows"]:
-                    #         nama = new_row.get("nama", "").strip()
-                    #         if nama and not new_database.check_customer_available(nama):
-                    #             new_database.insert_customer(nama)
-                
+                                
                 st.session_state.edit_success = True
                 st.rerun()
                 

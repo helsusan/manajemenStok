@@ -131,11 +131,7 @@ with tab2:
 
             target_cols = {
                 "NAMA": "Nama",
-                "SATUAN": "Satuan",
-                "MODEL_PREDIKSI": "model_prediksi",
-                "P": "p", 
-                "D": "d", 
-                "Q": "q"
+                "SATUAN": "Satuan"
             }
 
             # Cari kolom mana saja yang tersedia di Excel
@@ -185,11 +181,7 @@ with tab2:
                         try:
                             success, message = new_database.insert_barang(
                                 nama=row.get("Nama"),
-                                satuan=row.get("Satuan"),
-                                model_prediksi=row.get("model_prediksi", "Mean"),
-                                p=row.get("p"),
-                                d=row.get("d"),
-                                q=row.get("q")
+                                satuan=row.get("Satuan")
                             )
 
                             if success:
@@ -242,7 +234,7 @@ with tab3:
         - Double klik pada sel untuk mengedit.
         - Pilih baris dan tekan logo sampah pada bagian atas tabel atau tombol delete di keyboard untuk menghapus.
         
-        ⚠️ Menghapus data barang akan menghapus seluruh data penjualan, prediksi, stok, dan rekomendasi stok untuk barang tersebut.
+        ⚠️ Menghapus data barang akan menghapus seluruh data terkait untuk barang tersebut.
         """)
     
     try:
@@ -258,13 +250,7 @@ with tab3:
                 ),
                 "satuan": st.column_config.TextColumn(
                     "Satuan", required=True
-                ),
-                "model_prediksi": st.column_config.SelectboxColumn(
-                    "Model", options=["ARIMA", "Mean"], required=True
-                ),
-                "p": st.column_config.NumberColumn("p"),
-                "d": st.column_config.NumberColumn("d"),
-                "q": st.column_config.NumberColumn("q"),
+                )
             }
 
             edited_df = st.data_editor(
@@ -325,37 +311,9 @@ with tab3:
 
                                     new_database.update_barang(
                                         int(row['id']),
-                                        str(row['nama']).upper(), # UPDATED: Force Uppercase saat edit
-                                        str(row['satuan']).lower(),
-                                        row['model_prediksi'],
-                                        clean_nan(p_val), # UPDATED: Bersihkan NaN
-                                        clean_nan(d_val), # UPDATED: Bersihkan NaN
-                                        clean_nan(q_val)  # UPDATED: Bersihkan NaN
+                                        str(row['nama']).upper(),
+                                        str(row['satuan']).lower()
                                     )
-
-                            # 3️⃣ TAMBAH DATA
-                            # if changes["added_rows"]:
-                            #     for new_row in changes["added_rows"]:
-                            #         nama = new_row.get("nama", "")
-
-                            #         if not nama:
-                            #             continue  # skip baris kosong
-
-                            #         # Normalisasi nama
-                            #         nama = nama.strip().upper()
-
-                            #         # Validasi duplikasi
-                            #         if new_database.check_barang_available(nama):
-                            #             raise Exception(f"Barang '{nama}' sudah ada di database")
-
-                            #         if nama and not new_database.check_barang_available(nama):
-                            #             new_database.insert_barang(
-                            #                 nama=nama,
-                            #                 model_prediksi=new_row.get("model_prediksi", "Mean"),
-                            #                 p=new_row.get("p"),
-                            #                 d=new_row.get("d"),
-                            #                 q=new_row.get("q")
-                            #             )
 
                         st.session_state.edit_success = True
 

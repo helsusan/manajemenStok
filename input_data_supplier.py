@@ -291,7 +291,7 @@ with tab2:
     with st.expander("ℹ️ Format file Excel data supplier & pricelist"):
         st.write("""
         - Kolom Wajib: `Nama`
-        - Kolom Opsional: `TOP`
+        - Kolom Opsional: `TOP`, `Update Terakhir`
         - Kolom Pricelist: `Barang`, `Harga`
         - Jika ada pricelist, setiap baris = 1 supplier + 1 barang + 1 harga
         - Supplier yang sama bisa muncul di banyak baris dengan barang berbeda
@@ -328,7 +328,8 @@ with tab2:
                 "NAMA": "Nama",
                 "TOP": "TOP",
                 "BARANG": "Barang",
-                "HARGA": "Harga"
+                "HARGA": "Harga",
+                "UPDATE TERAKHIR": "Update Terakhir"
             }
 
             available_cols = []
@@ -408,7 +409,18 @@ with tab2:
                                     errors.append(f"Baris {idx+1}: Data sudah ada di database (Harga sama: {int(harga)})")
                                     continue
                                 
-                                if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(harga)):
+                                # Ambil nilai Update Terakhir (jika ada di file Excel)
+                                updated_at_val = None
+                                if "Update Terakhir" in df.columns:
+                                    raw_date = row.get("Update Terakhir")
+                                    if pd.notna(raw_date):
+                                        try:
+                                            # Format ke YYYY-MM-DD untuk disimpan di database
+                                            updated_at_val = pd.to_datetime(raw_date).strftime('%Y-%m-%d')
+                                        except:
+                                            updated_at_val = None
+                                
+                                if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(harga), updated_at=updated_at_val):
                                     success_count += 1
                                 else:
                                     error_count += 1
