@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import new_database
+import io
 
 st.set_page_config(
     page_title="Data Supplier",
@@ -549,13 +550,19 @@ with tab3:
             st.stop()
 
         # Download button
-        # st.download_button(
-        #     label="⬇️ Download Data Supplier",
-        #     data=df_suppliers.to_csv(index=False),
-        #     file_name="supplier.csv",
-        #     mime="text/csv",
-        #     use_container_width=True
-        # )
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_suppliers.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Supplier')
+
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+        
+        st.download_button(
+            label="📥 Download Data Supplier (Excel)",
+            data=output.getvalue(),
+            file_name=f"Daftar Supplier_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
         st.info(f"Total: {len(df_suppliers)} supplier")
         
@@ -710,6 +717,20 @@ with tab4:
         # Format tanggal jadi string agar csv tanpa time
         df_edit["updated_at"] = pd.to_datetime(df_edit["updated_at"]).dt.strftime('%d %b %Y')
 
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_edit.drop(columns=['id_pricelist'], errors='ignore').to_excel(writer, index=False, sheet_name='Pricelist')
+        
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+
+        st.download_button(
+            label="📥 Download Supplier Pricelist (Excel)",
+            data=output.getvalue(),
+            file_name=f"Supplier Pricelist_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+        
         column_config = {
             "id_pricelist": None,  # Hide ID
             "supplier": st.column_config.TextColumn(

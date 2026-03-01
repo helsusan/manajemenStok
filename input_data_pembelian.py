@@ -2,21 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import new_database
+import io
 
 st.set_page_config(
     page_title="Data Pembelian",
     page_icon="🛒",
     layout="wide"
 )
-
-# Header
-# st.markdown("""
-#     <div style='background-color: #28a745; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
-#         <h1 style='color: white; text-align: center; margin: 0;'>
-#             📦 KELOLA DATA BARANG
-#         </h1>
-#     </div>
-# """, unsafe_allow_html=True)
 
 st.header("Data Pembelian")
 
@@ -416,6 +408,21 @@ with tab3:
         # Hitung total transaksi yang tertampil
         total_transaksi = len(df_pembelian)
         st.info(f"Menampilkan {total_transaksi} transaksi")
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Drop kolom id agar tidak muncul di Excel
+            df_pembelian.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Pembelian')
+
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+        
+        st.download_button(
+            label="📥 Download Transaksi Pembelian (Excel)",
+            data=output.getvalue(),
+            file_name=f"Transaksi Pembelian_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
         # Tambah kolom checkbox untuk hapus
         df_pembelian.insert(0, 'Hapus', False)

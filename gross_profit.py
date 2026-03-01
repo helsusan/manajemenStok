@@ -179,11 +179,13 @@ try:
                 output = BytesIO()
                 gp_df.to_excel(output, index=False, engine='openpyxl')
                 output.seek(0)
+
+                tanggal_download = datetime.now().strftime("%d-%m-%Y")
                 
                 st.download_button(
                     label="📥 Download Data (Excel)",
                     data=output,
-                    file_name=f"gross profit_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                    file_name=f"Gross Profit_{tanggal_download}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 

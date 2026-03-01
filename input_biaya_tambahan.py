@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import new_database
+import io
 
 st.set_page_config(page_title="Biaya Tambahan", page_icon="💸", layout="wide")
 st.header("Biaya Tambahan")
@@ -10,7 +11,7 @@ tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Daftar Biaya Tambahan"])
 
 # ================= TAB 1: INPUT MANUAL =================
 with tab1:
-    st.subheader("📝 Input Biaya Tambahan Baru")
+    st.subheader("➕ Input Biaya Tambahan")
     
     # with st.form("form_biaya_tambahan"):
     col1, col2 = st.columns(2)
@@ -83,6 +84,20 @@ with tab2:
         # Total
         total_biaya = df_biaya['jumlah'].sum()
         st.info(f"**Total Biaya Tambahan pada periode ini:** Rp {total_biaya:,.0f}".replace(",", "."))
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_display.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Biaya Tambahan')
+
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+        
+        st.download_button(
+            label="📥 Download Biaya Tambahan (Excel)",
+            data=output.getvalue(),
+            file_name=f"Biaya Tambahan_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
         
         # Tambahkan kolom checkbox untuk menghapus
         df_display.insert(0, "Hapus", False)

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import new_database
+import io
 
 st.set_page_config(page_title="Pelunasan Hutang", page_icon="💰", layout="wide")
 st.header("Pelunasan Hutang (Supplier)")
@@ -16,7 +17,7 @@ tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Riwayat Pembayaran"])
 
 # ================= TAB 1: INPUT MANUAL =================
 with tab1:
-    st.subheader("Input Pembayaran Hutang")
+    st.subheader("➕ Input Pembayaran Hutang")
 
     with st.expander("ℹ️ Cara input pelunasan"):
         st.write("""
@@ -176,7 +177,7 @@ with tab1:
 
 # ================= TAB 3: RIWAYAT =================
 with tab2:
-    st.subheader("Riwayat Pembayaran Hutang")
+    st.subheader("📋 Riwayat Pembayaran Hutang")
     
     selected_date = st.date_input(
         "📅 Tanggal",
@@ -195,6 +196,20 @@ with tab2:
     if not df_hist.empty:
         df_hist['tanggal_bayar'] = pd.to_datetime(df_hist['tanggal_bayar']).dt.strftime('%d %b %Y')
         df_hist['jumlah_bayar'] = df_hist['jumlah_bayar'].apply(lambda x: f"Rp {x:,.0f}")
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_hist.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Hutang')
+        
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+
+        st.download_button(
+            label="📥 Download Riwayat Hutang (Excel)",
+            data=output.getvalue(),
+            file_name=f"Riwayat Pembayaran Hutang_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
         
         df_hist.insert(0, "Hapus", False)
         

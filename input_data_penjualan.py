@@ -11,15 +11,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Header
-# st.markdown("""
-#     <div style='background-color: #28a745; padding: 20px; border-radius: 10px; margin-bottom: 20px;'>
-#         <h1 style='color: white; text-align: center; margin: 0;'>
-#             📦 KELOLA DATA BARANG
-#         </h1>
-#     </div>
-# """, unsafe_allow_html=True)
-
 st.header("Data Penjualan")
 
 tab1, tab2, tab3, tab4 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Daftar Penjualan", "🖨️ Print Nota"])
@@ -403,6 +394,21 @@ with tab3:
         # Hitung total transaksi yang tertampil
         total_transaksi = len(df_penjualan)
         st.info(f"Menampilkan {total_transaksi} transaksi")
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Drop kolom id agar tidak muncul di Excel
+            df_penjualan.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Penjualan')
+
+        tanggal_download = datetime.now().strftime("%d-%m-%Y")
+        
+        st.download_button(
+            label="📥 Download Transaksi Penjualan (Excel)",
+            data=output.getvalue(),
+            file_name=f"Transaksi Penjualan_{tanggal_download}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
         # Tambah kolom checkbox untuk hapus
         df_penjualan.insert(0, 'Hapus', False)
