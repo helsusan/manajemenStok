@@ -11,6 +11,34 @@ st.set_page_config(
     layout="wide"
 )
 
+# ==========================================
+# PAGE LOCK
+# ==========================================
+if "profit_unlocked" not in st.session_state:
+    st.session_state.profit_unlocked = False
+
+# Jika belum di-unlock, tampilkan input password dan hentikan eksekusi
+if not st.session_state.profit_unlocked:
+    st.title("🔒 Halaman Dilindungi")
+    st.info("Silakan masukkan password untuk mengakses halaman Gross Profit.")
+    
+    # Form input password
+    password = st.text_input("Password", type="password")
+    if st.button("Buka Kunci", type="primary"):
+        if password == "owner888":  # GANTI dengan password yang kamu inginkan
+            st.session_state.profit_unlocked = True
+            st.rerun()
+        else:
+            st.error("❌ Password salah!")
+            
+    st.stop()  # PENTING: st.stop() akan mencegah kode di bawahnya berjalan
+
+# (Opsional) Tombol untuk mengunci kembali
+with st.sidebar:
+    if st.button("🔒 Kunci Halaman"):
+        st.session_state.profit_unlocked = False
+        st.rerun()
+
 st.title("📊 Gross Profit Analysis")
 
 # ==================== FILTER SECTION (MAIN PAGE) ====================
