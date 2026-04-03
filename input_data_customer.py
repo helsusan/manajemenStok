@@ -421,8 +421,11 @@ with tab2:
                                             updated_at_val = pd.to_datetime(raw_date).strftime('%Y-%m-%d')
                                         except:
                                             updated_at_val = None
+
+                                # Bersihkan format Rp sebelum konversi
+                                clean_harga = str(harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
                                 
-                                if new_database.upsert_customer_pricelist(id_customer, id_barang, int(harga), updated_at=updated_at_val):
+                                if new_database.upsert_customer_pricelist(id_customer, id_barang, int(clean_harga), updated_at=updated_at_val):
                                     success_count += 1
                                 else:
                                     error_count += 1
@@ -564,8 +567,6 @@ with tab3:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
-
-        st.info(f"Total: {len(df_customers)} customer")
 
         st.info(f"Total: {len(df_customers)} customer")
         
@@ -784,7 +785,7 @@ with tab4:
                                 # Bersihkan string "Rp" dan titik dari inputan user
                                 clean_harga = str(new_harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
 
-                                new_database.update_customer_pricelist(id_pricelist, int(new_harga))
+                                new_database.update_customer_pricelist(id_pricelist, int(clean_harga))
                 
                 st.session_state.pricelist_edit_success = True
                 st.rerun()

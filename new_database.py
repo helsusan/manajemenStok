@@ -8,7 +8,7 @@ def get_connection():
         host="localhost",
         user="root",
         password="",
-        database="trading_db"
+        database="testing_db"
     )
 
 def clean_excel_apostrophe(df):   
@@ -1042,7 +1042,7 @@ def insert_penjualan(df, default_top=None):
             penjualan_data = cursor.fetchone()
             
             if penjualan_data:
-                ualan = penjualan_data[0]
+                tanggal_penjualan = penjualan_data[0]
                 id_cust = penjualan_data[1]
                 total_penjualan = float(penjualan_data[2])
                 top_value = penjualan_data[3]

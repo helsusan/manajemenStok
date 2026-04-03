@@ -215,32 +215,87 @@ with tab2:
         try:
             df_raw = pd.read_excel(uploaded_file, header=None)
 
-            EXPECTED_COLS = ["Tgl Faktur", "No. Faktur", "Nama Pelanggan", "Keterangan Barang", "Kuantitas", "Jumlah"]
+            # Mapping: semua alias -> nama standar internal
+            COLUMN_ALIASES = {
+                "NO. FAKTUR": "No. Faktur",
+                "NO_NOTA": "No. Faktur",
+                "TGL FAKTUR": "Tgl Faktur",
+                "TANGGAL": "Tgl Faktur",
+                "NAMA PELANGGAN": "Nama Pelanggan",
+                "NAMA_CUSTOMER": "Nama Pelanggan",
+                "KETERANGAN BARANG": "Keterangan Barang",
+                "NAMA_BARANG": "Keterangan Barang",
+                "KUANTITAS": "Kuantitas",
+                "JUMLAH": "Jumlah",
+                "SUBTOTAL": "Jumlah",
+                "HARGA SATUAN": "Harga Satuan",
+                "SATUAN": "Satuan",
+                "TOP": "TOP",
+            }
+
+            REQUIRED_STANDARD = ["No. Faktur", "Tgl Faktur", "Nama Pelanggan", "Keterangan Barang", "Kuantitas", "Jumlah"]
+
+            # Deteksi baris header: cari baris yang mengandung semua kolom wajib (salah satu aliasnya)
+            REQUIRED_ALIASES_GROUPS = [
+                {"NO. FAKTUR", "NO_NOTA"},
+                {"TGL FAKTUR", "TANGGAL"},
+                {"NAMA PELANGGAN", "NAMA_CUSTOMER"},
+                {"KETERANGAN BARANG", "NAMA_BARANG"},
+                {"KUANTITAS"},
+                {"JUMLAH", "SUBTOTAL"},
+            ]
 
             header_row_index = None
 
             for i, row in df_raw.iterrows():
-                row_str = row.astype(str).str.upper()
-                if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+                row_upper = row.astype(str).str.strip().str.upper().tolist()
+                if all(
+                    any(alias in cell for alias in group for cell in row_upper)
+                    for group in REQUIRED_ALIASES_GROUPS
+                ):
                     header_row_index = i
                     break
 
+            if header_row_index is None:
+                st.error("❌ Header kolom wajib tidak ditemukan.")
+                st.stop()
+
             df = pd.read_excel(uploaded_file, header=header_row_index)
 
-            # Identifikasi kolom yang akan dipakai
-            actual_cols = [col for col in EXPECTED_COLS if col in df.columns]
+            # Rename kolom ke nama standar internal
+            rename_map = {}
+            for col in df.columns:
+                col_upper = str(col).strip().upper()
+                if col_upper in COLUMN_ALIASES:
+                    rename_map[col] = COLUMN_ALIASES[col_upper]
 
-            # Cek jika excel memiliki kolom opsional
-            if "Satuan" in df.columns:
-                actual_cols.append("Satuan")
-            if "Harga Satuan" in df.columns:
-                actual_cols.append("Harga Satuan")
-            if "TOP" in df.columns:
-                actual_cols.append("TOP")
+            df = df.rename(columns=rename_map)
+
+            # Pastikan semua kolom wajib tersedia setelah rename
+            missing = [c for c in REQUIRED_STANDARD if c not in df.columns]
+            if missing:
+                st.error(f"❌ Kolom wajib tidak ditemukan setelah mapping: {', '.join(missing)}")
+                st.stop()
+
+            # Ambil kolom yang relevan saja
+            actual_cols = REQUIRED_STANDARD.copy()
+            for opt in ["Satuan", "Harga Satuan", "TOP"]:
+                if opt in df.columns:
+                    actual_cols.append(opt)
 
             df = df.dropna(how="all")
-            df = df[EXPECTED_COLS]
             df = new_database.clean_excel_apostrophe(df)
+
+            # Bersihkan kolom currency (Rp)
+            for col in ["Harga Satuan", "Jumlah", "subtotal"]:
+                if col in df.columns:
+                    df[col] = df[col].apply(
+                        lambda x: float(str(x).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()) 
+                        if pd.notna(x) and str(x).strip() not in ["", "None", "nan"] else None
+                    )
+
+            # Bersihkan kolom tanggal (bisa berformat '10 Mar 2026' atau datetime)
+            df["Tgl Faktur"] = pd.to_datetime(df["Tgl Faktur"], dayfirst=True, errors="coerce").dt.date
 
             mismatch_errors = []
 

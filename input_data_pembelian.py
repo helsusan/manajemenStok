@@ -109,7 +109,7 @@ with tab1:
             step=1,
             value=int(default_top),
             format="%d",
-            help="Pembayaran harus lunas dalam berapa hari (Otomatis menggunakan default customer)"
+            help="Pembayaran harus lunas dalam berapa hari (Otomatis menggunakan default supplier)"
         )
     
     st.markdown("---")
@@ -213,32 +213,87 @@ with tab2:
         try:
             df_raw = pd.read_excel(uploaded_file, header=None)
 
-            EXPECTED_COLS = ["Tgl Faktur", "No. Faktur", "Nama Supplier", "Keterangan Barang", "Kuantitas", "Jumlah"]
+            # Mapping: semua alias -> nama standar internal
+            COLUMN_ALIASES = {
+                "NO. FAKTUR": "No. Faktur",
+                "NO_NOTA": "No. Faktur",
+                "TGL FAKTUR": "Tgl Faktur",
+                "TANGGAL": "Tgl Faktur",
+                "NAMA SUPPLIER": "Nama Supplier",
+                "NAMA_SUPPLIER": "Nama Supplier",
+                "KETERANGAN BARANG": "Keterangan Barang",
+                "NAMA_BARANG": "Keterangan Barang",
+                "KUANTITAS": "Kuantitas",
+                "JUMLAH": "Jumlah",
+                "SUBTOTAL": "Jumlah",
+                "HARGA SATUAN": "Harga Satuan",
+                "SATUAN": "Satuan",
+                "TOP": "TOP",
+            }
+
+            REQUIRED_STANDARD = ["No. Faktur", "Tgl Faktur", "Nama Supplier", "Keterangan Barang", "Kuantitas", "Jumlah"]
+
+            # Deteksi baris header: cari baris yang mengandung semua kolom wajib (salah satu aliasnya)
+            REQUIRED_ALIASES_GROUPS = [
+                {"NO. FAKTUR", "NO_NOTA"},
+                {"TGL FAKTUR", "TANGGAL"},
+                {"NAMA SUPPLIER", "NAMA_SUPPLIER"},
+                {"KETERANGAN BARANG", "NAMA_BARANG"},
+                {"KUANTITAS"},
+                {"JUMLAH", "SUBTOTAL"},
+            ]
 
             header_row_index = None
 
             for i, row in df_raw.iterrows():
-                row_str = row.astype(str).str.upper()
-                if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+                row_upper = row.astype(str).str.strip().str.upper().tolist()
+                if all(
+                    any(alias in cell for alias in group for cell in row_upper)
+                    for group in REQUIRED_ALIASES_GROUPS
+                ):
                     header_row_index = i
                     break
 
+            if header_row_index is None:
+                st.error("❌ Header kolom wajib tidak ditemukan.")
+                st.stop()
+
             df = pd.read_excel(uploaded_file, header=header_row_index)
 
-            # Identifikasi kolom yang akan dipakai
-            actual_cols = [col for col in EXPECTED_COLS if col in df.columns]
+            # Rename kolom ke nama standar internal
+            rename_map = {}
+            for col in df.columns:
+                col_upper = str(col).strip().upper()
+                if col_upper in COLUMN_ALIASES:
+                    rename_map[col] = COLUMN_ALIASES[col_upper]
 
-            # Cek jika excel memiliki kolom opsional
-            if "Satuan" in df.columns:
-                actual_cols.append("Satuan")
-            if "Harga Satuan" in df.columns:
-                actual_cols.append("Harga Satuan")
-            if "TOP" in df.columns:
-                actual_cols.append("TOP")
+            df = df.rename(columns=rename_map)
+
+            # Pastikan semua kolom wajib tersedia setelah rename
+            missing = [c for c in REQUIRED_STANDARD if c not in df.columns]
+            if missing:
+                st.error(f"❌ Kolom wajib tidak ditemukan setelah mapping: {', '.join(missing)}")
+                st.stop()
+
+            # Ambil kolom yang relevan saja
+            actual_cols = REQUIRED_STANDARD.copy()
+            for opt in ["Satuan", "Harga Satuan", "TOP"]:
+                if opt in df.columns:
+                    actual_cols.append(opt)
 
             df = df.dropna(how="all")
-            df = df[EXPECTED_COLS]
             df = new_database.clean_excel_apostrophe(df)
+
+            # Bersihkan kolom currency (Rp)
+            for col in ["Harga Satuan", "Jumlah", "subtotal"]:
+                if col in df.columns:
+                    df[col] = df[col].apply(
+                        lambda x: float(str(x).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()) 
+                        if pd.notna(x) and str(x).strip() not in ["", "None", "nan"] else None
+                    )
+
+            # Bersihkan kolom tanggal (bisa berformat '10 Mar 2026' atau datetime)
+            df["Tgl Faktur"] = pd.to_datetime(df["Tgl Faktur"], dayfirst=True, errors="coerce").dt.date
 
             mismatch_errors = []
 
@@ -259,18 +314,18 @@ with tab2:
             # 2. PENGECEKAN HARGA SATUAN
             if "Harga Satuan" in df.columns:
                 for idx, row in df.iterrows():
-                    customer = str(row.get('Nama Pelanggan')).strip()
+                    supplier = str(row.get('Nama Supplier')).strip()
                     barang = str(row.get('Keterangan Barang')).strip()
                     excel_price = row.get('Harga Satuan')
                     
                     if pd.notna(excel_price):
-                        db_price = new_database.get_harga_customer(customer, barang)
+                        db_price = new_database.get_harga_supplier(supplier, barang)
                         if db_price is None:
                             db_price = 0
                         
                         # Toleransi perbedaan koma / desimal kecil (jika selisih >= 1 Rupiah, anggap beda)
                         if abs(float(excel_price) - float(db_price)) >= 1:
-                            mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Harga Satuan '{barang}' untuk '{customer}' tidak sesuai! (Excel: Rp {float(excel_price):,.0f} | DB: Rp {float(db_price):,.0f})")
+                            mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Harga Satuan '{barang}' untuk '{supplier}' tidak sesuai! (Excel: Rp {float(excel_price):,.0f} | DB: Rp {float(db_price):,.0f})")
             else:
                 # 3. JIKA TIDAK ADA KOLOM HARGA SATUAN, HITUNG OTOMATIS
                 # Mencegah error pembagian dengan 0 (ZeroDivisionError)

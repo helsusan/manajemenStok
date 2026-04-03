@@ -420,6 +420,9 @@ with tab2:
                                             updated_at_val = pd.to_datetime(raw_date).strftime('%Y-%m-%d')
                                         except:
                                             updated_at_val = None
+
+                                # Bersihkan format Rp sebelum konversi
+                                clean_harga = str(harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
                                 
                                 if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(harga), updated_at=updated_at_val):
                                     success_count += 1
@@ -788,7 +791,7 @@ with tab4:
                                 # Bersihkan string "Rp" dan titik dari inputan user
                                 clean_harga = str(new_harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
 
-                                new_database.update_supplier_pricelist(id_pricelist, int(new_harga))
+                                new_database.update_supplier_pricelist(id_pricelist, int(clean_harga))
                 
                 st.session_state.pricelist_edit_success = True
                 st.rerun()
