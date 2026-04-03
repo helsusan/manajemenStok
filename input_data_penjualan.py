@@ -314,27 +314,27 @@ with tab2:
                             mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Barang '{row['Keterangan Barang']}' (Satuan Excel: {row['Satuan']} | Satuan DB: {db_satuan})")
             
             # 2. PENGECEKAN HARGA SATUAN
-            if "Harga Satuan" in df.columns:
-                for idx, row in df.iterrows():
-                    customer = str(row.get('Nama Pelanggan')).strip()
-                    barang = str(row.get('Keterangan Barang')).strip()
-                    excel_price = row.get('Harga Satuan')
+            # if "Harga Satuan" in df.columns:
+            #     for idx, row in df.iterrows():
+            #         customer = str(row.get('Nama Pelanggan')).strip()
+            #         barang = str(row.get('Keterangan Barang')).strip()
+            #         excel_price = row.get('Harga Satuan')
                     
-                    if pd.notna(excel_price):
-                        db_price = new_database.get_harga_customer(customer, barang)
-                        if db_price is None:
-                            db_price = 0
+            #         if pd.notna(excel_price):
+            #             db_price = new_database.get_harga_customer(customer, barang)
+            #             if db_price is None:
+            #                 db_price = 0
                         
-                        # Toleransi perbedaan koma / desimal kecil (jika selisih >= 1 Rupiah, anggap beda)
-                        if abs(float(excel_price) - float(db_price)) >= 1:
-                            mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Harga Satuan '{barang}' untuk '{customer}' tidak sesuai! (Excel: Rp {float(excel_price):,.0f} | DB: Rp {float(db_price):,.0f})")
-            else:
-                # 3. JIKA TIDAK ADA KOLOM HARGA SATUAN, HITUNG OTOMATIS
-                # Mencegah error pembagian dengan 0 (ZeroDivisionError)
-                df["Harga Satuan"] = df.apply(
-                    lambda row: float(row["Jumlah"]) / float(row["Kuantitas"]) if float(row["Kuantitas"]) > 0 else 0, 
-                    axis=1
-                )
+            #             # Toleransi perbedaan koma / desimal kecil (jika selisih >= 1 Rupiah, anggap beda)
+            #             if abs(float(excel_price) - float(db_price)) >= 1:
+            #                 mismatch_errors.append(f"Baris {idx + header_row_index + 2}: Harga Satuan '{barang}' untuk '{customer}' tidak sesuai! (Excel: Rp {float(excel_price):,.0f} | DB: Rp {float(db_price):,.0f})")
+            # else:
+            # 3. JIKA TIDAK ADA KOLOM HARGA SATUAN, HITUNG OTOMATIS
+            # Mencegah error pembagian dengan 0 (ZeroDivisionError)
+            df["Harga Satuan"] = df.apply(
+                lambda row: float(row["Jumlah"]) / float(row["Kuantitas"]) if float(row["Kuantitas"]) > 0 else 0, 
+                axis=1
+            )
             
             # Jika ada error dari satuan ATAU harga satuan, blokir proses
             if mismatch_errors:
@@ -352,10 +352,13 @@ with tab2:
 
             if st.button("💾 Simpan", type="primary", use_container_width=True):
                 with st.spinner("Mengupload data ke database..."):
-                    success_count, error_count, errors = new_database.insert_penjualan(df, default_top=None)
-                            
+                    success_count, error_count, errors, skipped_count = new_database.insert_penjualan(df, default_top=None)
+
                 if success_count > 0:
                     st.success(f"✅ Berhasil mengupload {success_count} baris data!")
+
+                if skipped_count > 0:
+                    st.info(f"ℹ️ {skipped_count} baris dilewati karena data identik sudah ada di database.")
                             
                 if error_count > 0:
                     st.warning(f"⚠️ {error_count} baris gagal diupload")

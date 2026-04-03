@@ -116,7 +116,7 @@ st.markdown("---")
 try:
     with st.spinner("Sedang menghitung Gross Profit (FIFO)..."):
         # 1. Ambil Data Mentah (Query ada di new_database.py)
-        pembelian_df = new_database.get_pembelian_data(start_date, end_date)
+        pembelian_df = new_database.get_pembelian_data(start_date=None, end_date=end_date)
         penjualan_df = new_database.get_penjualan_data(start_date, end_date)
     
     if pembelian_df.empty or penjualan_df.empty:
@@ -231,149 +231,135 @@ try:
                     barang_data = gp_df[gp_df['nama_barang'] == selected_barang].iloc[0]
                     barang_id = barang_data['id_barang']
 
+                    # === RINGKASAN (mirip baris total di Excel) ===
+                    st.markdown("#### 📊 Ringkasan")
                     col1, col2, col3, col4 = st.columns(4)
-                    
                     with col1:
-                        st.metric(
-                            "Total Qty Terjual",
-                            f"{barang_data['qty_terjual']:,.0f} pcs"
-                        )
-                    
+                        st.metric("Total Qty Terjual", f"{barang_data['qty_terjual']:,.0f} dos")
                     with col2:
-                        st.metric(
-                            "Total Penjualan",
-                            f"Rp {barang_data['total_penjualan']:,.0f}".replace(",", ".")
-                        )
-                    
+                        st.metric("Total Omzet", f"Rp {barang_data['total_penjualan']:,.0f}".replace(",", "."))
                     with col3:
-                        st.metric(
-                            "Total HPP",
-                            f"Rp {barang_data['total_hpp']:,.0f}".replace(",", ".")
-                        )
-                    
+                        st.metric("Total HPP", f"Rp {barang_data['total_hpp']:,.0f}".replace(",", "."))
                     with col4:
                         st.metric(
                             "Gross Profit",
                             f"Rp {barang_data['gross_profit']:,.0f}".replace(",", "."),
-                            delta=f"{barang_data['margin_persen']:.2f}%"
+                            delta=f"{barang_data['margin_persen']:.2f}% margin"
                         )
-                    
+
                     st.markdown("---")
-                    
+
                     # === GENERATE KARTU STOK ===
                     kartu_stok = new_database.generate_kartu_stok_fifo(
-                        barang_id, 
-                        pembelian_df, 
-                        penjualan_df
+                        barang_id, pembelian_df, penjualan_df
                     )
-                    
+
                     if not kartu_stok.empty:
-                        # === SECTION 1: RIWAYAT PEMBELIAN (Stock In) ===
+
+                        # === SECTION 1: RIWAYAT PEMBELIAN ===
                         st.markdown("### 📥 Riwayat Pembelian (Stock In)")
-                        
+                        st.caption("Sumber HPP — harga beli dari supplier")
+
                         pembelian_barang = pembelian_df[
-                            (pembelian_df['id_barang'] == barang_id) & 
+                            (pembelian_df['id_barang'] == barang_id) &
                             (pembelian_df['tipe'] == 'Barang')
                         ].copy()
-                        
-                        # Mapping ongkir
+
                         ongkir_map = {}
                         ongkir_rows = pembelian_df[
-                            (pembelian_df['id_barang'] == barang_id) & 
+                            (pembelian_df['id_barang'] == barang_id) &
                             (pembelian_df['tipe'] == 'Ongkir')
                         ]
                         for _, ongkir_row in ongkir_rows.iterrows():
                             key = (ongkir_row['tanggal'], ongkir_row['id_barang'])
                             ongkir_map[key] = float(ongkir_row['subtotal'])
-                        
-                        # Format pembelian untuk display
+
                         pembelian_display = []
                         for _, row in pembelian_barang.iterrows():
                             key = (row['tanggal'], barang_id)
                             ongkir = ongkir_map.get(key, 0)
                             hpp_unit = (row['subtotal'] + ongkir) / row['kuantitas']
-                            
+
                             pembelian_display.append({
                                 'Tanggal': pd.to_datetime(row['tanggal']).strftime('%d %b %Y'),
-                                'No. Nota': row['no_nota'],
-                                'Qty': f"{row['kuantitas']:.0f} pcs",
-                                'Harga Barang': f"Rp {row['subtotal']:,.0f}".replace(",", "."),
+                                'No. Nota Beli': row['no_nota'],
+                                'Qty (dos)': int(row['kuantitas']),
+                                'Harga Beli/dos': f"Rp {(row['subtotal']/row['kuantitas']):,.0f}".replace(",", "."),
                                 'Ongkir': f"Rp {ongkir:,.0f}".replace(",", "."),
-                                'HPP/pcs': f"Rp {hpp_unit:,.0f}".replace(",", "."),
-                                'Total HPP': f"Rp {(row['subtotal'] + ongkir):,.0f}".replace(",", ".")
+                                'HPP/dos (incl. ongkir)': f"Rp {hpp_unit:,.0f}".replace(",", "."),
+                                'Total Nilai Beli': f"Rp {(row['subtotal'] + ongkir):,.0f}".replace(",", "."),
                             })
-                        
+
                         st.dataframe(
                             pd.DataFrame(pembelian_display),
                             use_container_width=True,
                             hide_index=True
                         )
-                        
+
                         st.markdown("---")
-                        
-                        # === SECTION 2: KARTU STOK PENJUALAN (Stock Out) ===
-                        st.markdown("### 📤 Riwayat Penjualan (Stock Out)")
-                        
-                        # Format untuk display
-                        kartu_display = kartu_stok.copy()
-                        kartu_display['Tanggal'] = pd.to_datetime(kartu_display['tanggal']).dt.strftime('%d %b %Y')
-                        kartu_display['No. Nota'] = kartu_display['no_nota']
-                        kartu_display['Qty'] = kartu_display['qty'].apply(lambda x: f"{x:.0f} pcs")
-                        kartu_display['Harga Jual'] = kartu_display['harga_jual'].apply(
-                            lambda x: f"Rp {x:,.0f}".replace(",", ".")
-                        )
-                        kartu_display['HPP Avg/pcs'] = kartu_display['hpp_avg'].apply(
-                            lambda x: f"Rp {x:,.0f}".replace(",", ".")
-                        )
-                        kartu_display['Total Penjualan'] = kartu_display['subtotal'].apply(
-                            lambda x: f"Rp {x:,.0f}".replace(",", ".")
-                        )
-                        kartu_display['Total HPP'] = kartu_display['total_hpp'].apply(
-                            lambda x: f"Rp {x:,.0f}".replace(",", ".")
-                        )
-                        kartu_display['Gross Profit'] = kartu_display['gross_profit'].apply(
-                            lambda x: f"Rp {x:,.0f}".replace(",", ".")
-                        )
-                        kartu_display['Margin'] = kartu_display['margin_persen'].apply(
-                            lambda x: f"{x:.2f}%"
-                        )
-                        
-                        # Tampilkan tabel utama
+
+                        # === SECTION 2: RIWAYAT PENJUALAN (mirip tabel Excel klien) ===
+                        st.markdown("### 📤 Riwayat Penjualan & Gross Profit per Transaksi")
+                        st.caption("HPP dihitung menggunakan metode FIFO — stok masuk pertama dipakai pertama")
+
+                        penjualan_display = []
+                        for _, row in kartu_stok.iterrows():
+                            penjualan_display.append({
+                                'Tanggal': pd.to_datetime(row['tanggal']).strftime('%d %b %Y'),
+                                'No. Nota Jual': row['no_nota'],
+                                'Pelanggan': row.get('nama_customer', '-'),
+                                'Qty (dos)': int(row['qty']),
+                                'Harga Jual/dos': f"Rp {row['harga_jual']:,.0f}".replace(",", "."),
+                                'Total Harga': f"Rp {row['subtotal']:,.0f}".replace(",", "."),
+                                'HPP/dos': f"Rp {row['hpp_avg']:,.0f}".replace(",", "."),
+                                'Total HPP': f"Rp {row['total_hpp']:,.0f}".replace(",", "."),
+                                'Gross Profit': f"Rp {row['gross_profit']:,.0f}".replace(",", "."),
+                                'Margin': f"{row['margin_persen']:.1f}%",
+                            })
+
+                        # Baris TOTAL (mirip baris 33 di Excel klien)
+                        penjualan_display.append({
+                            'Tanggal': '',
+                            'No. Nota Jual': '',
+                            'Pelanggan': '🟰 TOTAL',
+                            'Qty (dos)': int(kartu_stok['qty'].sum()),
+                            'Harga Jual/dos': '',
+                            'Total Harga': f"Rp {kartu_stok['subtotal'].sum():,.0f}".replace(",", "."),
+                            'HPP/dos': '',
+                            'Total HPP': f"Rp {kartu_stok['total_hpp'].sum():,.0f}".replace(",", "."),
+                            'Gross Profit': f"Rp {kartu_stok['gross_profit'].sum():,.0f}".replace(",", "."),
+                            'Margin': f"{(kartu_stok['gross_profit'].sum() / kartu_stok['subtotal'].sum() * 100):.1f}%" if kartu_stok['subtotal'].sum() > 0 else "0%",
+                        })
+
                         st.dataframe(
-                            kartu_display[[
-                                'Tanggal', 'No. Nota', 'Qty', 'Harga Jual', 'HPP Avg/pcs',
-                                'Total Penjualan', 'Total HPP', 'Gross Profit', 'Margin'
-                            ]],
+                            pd.DataFrame(penjualan_display),
                             use_container_width=True,
                             hide_index=True
                         )
-                        
-                        # === SECTION 3: BREAKDOWN HPP PER TRANSAKSI ===
-                        st.markdown("#### 🔍 Detail Alokasi HPP (FIFO)")
-                        
-                        with st.expander("📖 Lihat detail dari mana HPP setiap transaksi diambil"):
-                            for idx, row in kartu_stok.iterrows():
-                                st.markdown(f"**{row['no_nota']}** ({pd.to_datetime(row['tanggal']).strftime('%d %b %Y')}) - "
-                                        f"{row['qty']:.0f} pcs:")
-                                st.caption(f"└─ {row['hpp_breakdown']}")
-                                if idx < len(kartu_stok) - 1:
-                                    st.markdown("")
-                        
-                        # === DOWNLOAD BUTTON ===
+
+                        # === SECTION 3: BREAKDOWN HPP (tetap ada tapi lebih ringkas) ===
                         st.markdown("---")
-                        
-                        # Prepare Excel export
+                        with st.expander("🔍 Detail Alokasi HPP per Transaksi (FIFO Breakdown)"):
+                            st.caption("Menunjukkan dari batch pembelian mana HPP setiap penjualan diambil")
+                            for idx, row in kartu_stok.iterrows():
+                                st.markdown(
+                                    f"**{row['no_nota']}** · {pd.to_datetime(row['tanggal']).strftime('%d %b %Y')} · "
+                                    f"{int(row['qty'])} dos"
+                                )
+                                st.caption(f"└─ {row['hpp_breakdown']}")
+
+                        # === DOWNLOAD ===
+                        st.markdown("---")
                         output = BytesIO()
-                        gp_df.to_excel(output, index=False, engine='openpyxl')
+                        kartu_stok.to_excel(output, index=False, engine='openpyxl')
                         output.seek(0)
-                        
                         st.download_button(
-                            label="📥 Download Data (Excel)",
+                            label="📥 Download Detail Kartu Stok (Excel)",
                             data=output,
-                            file_name=f"gross profit_{selected_barang}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                            file_name=f"kartu_stok_{selected_barang}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
-                        
+
                     else:
                         st.warning("⚠️ Tidak ada data kartu stok untuk barang ini.")
 

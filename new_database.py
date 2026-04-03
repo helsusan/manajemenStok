@@ -865,6 +865,7 @@ def insert_penjualan(df, default_top=None):
     conn = get_connection()
     cursor = conn.cursor()
     success_count = 0
+    skipped_count = 0
     errors = []
 
     try:
@@ -992,19 +993,30 @@ def insert_penjualan(df, default_top=None):
                 detail_id = existing_detail[0]
                 old_kuantitas = existing_detail[1]
                 old_subtotal = float(existing_detail[2])
+
+                # Cek apakah data PERSIS SAMA (duplikat sejati)
+                old_harga_satuan = old_subtotal / old_kuantitas if old_kuantitas > 0 else 0
+                is_exact_duplicate = (
+                    old_kuantitas == kuantitas and
+                    abs(old_harga_satuan - harga_satuan) < 1  # toleransi 1 rupiah
+                )
                 
-                new_kuantitas = old_kuantitas + kuantitas
-                new_subtotal = old_subtotal + subtotal
-                
-                query_update = """
-                UPDATE penjualan_detail
-                SET kuantitas = %s, subtotal = %s
-                WHERE id = %s
-                """
-                cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
-                
-                # Update total penjualan (tambah selisihnya aja)
-                penjualan_cache[no_nota]["total"] += subtotal
+                if is_exact_duplicate:
+                    # Skip baris ini, jangan error, jangan update
+                    skipped_count += 1
+                    continue
+                else:
+                    # Data beda (qty atau harga beda), UPDATE seperti biasa
+                    new_kuantitas = old_kuantitas + kuantitas
+                    new_subtotal = old_subtotal + subtotal
+                    
+                    query_update = """
+                    UPDATE penjualan_detail
+                    SET kuantitas = %s, subtotal = %s
+                    WHERE id = %s
+                    """
+                    cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
+                    penjualan_cache[no_nota]["total"] += subtotal
                 
             else:
                 # Barang belum ada, INSERT baru
@@ -1078,14 +1090,14 @@ def insert_penjualan(df, default_top=None):
         conn.commit()
         cursor.close()
         conn.close()
-        return success_count, 0, []
+        return success_count, 0, [], skipped_count
 
     except Exception as e:
         conn.rollback()
         cursor.close()
         conn.close()
         errors.append(str(e))
-        return 0, df.shape[0], errors
+        return 0, df.shape[0], errors, skipped_count
 
 # Ambil daftar tanggal transaksi
 def get_penjualan_dates():
@@ -1163,15 +1175,36 @@ def delete_penjualan(id_penjualan):
     cursor = conn.cursor()
 
     try:
+        conn.start_transaction()
+
+        # 1. Cek apakah ada piutang yang nyangkut dengan id_penjualan ini
+        cursor.execute("SELECT id FROM piutang WHERE id_penjualan = %s", (int(id_penjualan),))
+        piutang_record = cursor.fetchone()
+
+        if piutang_record:
+            id_piutang = piutang_record[0]
+            # 2. Hapus riwayat pembayaran piutangnya dulu (jika ada)
+            cursor.execute("DELETE FROM pembayaran_piutang WHERE id_piutang = %s", (id_piutang,))
+            
+            # 3. Hapus data piutangnya
+            cursor.execute("DELETE FROM piutang WHERE id_penjualan = %s", (int(id_penjualan),))
+
+        # 4. Hapus detail barang di nota tersebut
         cursor.execute(
             "DELETE FROM penjualan_detail WHERE id_penjualan = %s",
             (int(id_penjualan),)
         )
+        
+        # 5. Terakhir, baru hapus header penjualannya
         cursor.execute(
             "DELETE FROM penjualan WHERE id = %s",
             (int(id_penjualan),)
         )
+        
         conn.commit()
+    except Exception as e:
+        conn.rollback() # Batalkan semua hapusan jika ada 1 yang gagal
+        raise e
     finally:
         cursor.close()
         conn.close()
@@ -1255,6 +1288,7 @@ def insert_pembelian(df, default_top=None):
     conn = get_connection()
     cursor = conn.cursor()
     success_count = 0
+    skipped_count = 0
     errors = []
 
     try:
@@ -1373,7 +1407,7 @@ def insert_pembelian(df, default_top=None):
             # CEK APAKAH BARANG SUDAH ADA DI DETAIL
             # ======================
             cursor.execute("""
-                SELECT id, kuantitas, subtotal 
+                SELECT id, kuantitas, subtotal, harga_satuan
                 FROM pembelian_detail 
                 WHERE id_pembelian = %s AND id_barang = %s
                 LIMIT 1
@@ -1386,19 +1420,31 @@ def insert_pembelian(df, default_top=None):
                 detail_id = existing_detail[0]
                 old_kuantitas = existing_detail[1]
                 old_subtotal = float(existing_detail[2])
+                old_harga_satuan = float(existing_detail[3])
                 
-                new_kuantitas = old_kuantitas + kuantitas
-                new_subtotal = old_subtotal + subtotal
+                # Cek apakah data PERSIS SAMA (duplikat sejati)
+                old_harga_satuan = old_subtotal / old_kuantitas if old_kuantitas > 0 else 0
+                is_exact_duplicate = (
+                    old_kuantitas == kuantitas and
+                    abs(old_harga_satuan - harga_satuan) < 1  # toleransi 1 rupiah
+                )
                 
-                query_update = """
-                UPDATE pembelian_detail
-                SET kuantitas = %s, subtotal = %s
-                WHERE id = %s
-                """
-                cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
-                
-                # Update total pembelian (tambah selisihnya aja)
-                pembelian_cache[no_nota]["total"] += subtotal
+                if is_exact_duplicate:
+                    # Skip baris ini, jangan error, jangan update
+                    skipped_count += 1
+                    continue
+                else:
+                    # Data beda (qty atau harga beda), UPDATE seperti biasa
+                    new_kuantitas = old_kuantitas + kuantitas
+                    new_subtotal = old_subtotal + subtotal
+                    
+                    query_update = """
+                    UPDATE pembelian_detail
+                    SET kuantitas = %s, subtotal = %s
+                    WHERE id = %s
+                    """
+                    cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
+                    pembelian_cache[no_nota]["total"] += subtotal
                 
             else:
                 # Barang belum ada, INSERT baru
@@ -1472,14 +1518,14 @@ def insert_pembelian(df, default_top=None):
         conn.commit()
         cursor.close()
         conn.close()
-        return success_count, 0, []
+        return success_count, 0, [], skipped_count
 
     except Exception as e:
         conn.rollback()
         cursor.close()
         conn.close()
         errors.append(str(e))
-        return 0, df.shape[0], errors
+        return 0, df.shape[0], errors, skipped_count
 
 # Ambil daftar tanggal transaksi
 def get_pembelian_dates():
@@ -1993,12 +2039,14 @@ def get_penjualan_data(start_date=None, end_date=None):
         p.no_nota,
         pd.id_barang,
         b.nama as nama_barang,
+        c.nama as nama_customer,
         pd.kuantitas,
         pd.harga_satuan,
         pd.subtotal
     FROM penjualan_detail pd
     JOIN penjualan p ON pd.id_penjualan = p.id
     JOIN barang b ON pd.id_barang = b.id
+    LEFT JOIN customer c ON p.id_customer = c.id
     """
     
     if start_date and end_date:
@@ -2051,7 +2099,7 @@ def calculate_gross_profit_fifo(pembelian_df, penjualan_df):
         
         penjualan_barang = penjualan_df[penjualan_df['id_barang'] == barang_id].copy()
         
-        if pembelian_barang.empty or penjualan_barang.empty:
+        if penjualan_barang.empty:
             continue
         
         # STEP 3: Hitung HPP per unit (termasuk ongkir spesifik)
@@ -2213,6 +2261,7 @@ def generate_kartu_stok_fifo(barang_id, pembelian_df, penjualan_df):
         qty_terjual = float(penjualan['kuantitas'])
         harga_jual = float(penjualan['harga_satuan'])
         subtotal_jual = float(penjualan['subtotal'])
+        nama_customer = penjualan.get('nama_customer', '-')
         
         # Alokasi HPP menggunakan FIFO
         qty_remaining = qty_terjual
@@ -2274,6 +2323,7 @@ def generate_kartu_stok_fifo(barang_id, pembelian_df, penjualan_df):
         kartu_stok.append({
             'tanggal': tanggal_jual,
             'no_nota': no_nota,
+            'nama_customer': nama_customer,
             'qty': qty_terjual,
             'harga_jual': harga_jual,
             'hpp_avg': hpp_avg_per_unit,
