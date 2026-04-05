@@ -2,6 +2,7 @@ import mysql.connector
 import pandas as pd
 from datetime import datetime, timedelta
 import streamlit as st
+import re
 
 def get_connection():
     return mysql.connector.connect(
@@ -89,6 +90,8 @@ def get_barang_id(nama_barang):
     conn = get_connection()
     cursor = conn.cursor()
 
+    nama_barang = re.sub(r'\s+', ' ', str(nama_barang).strip())
+
     query = "SELECT id FROM barang WHERE nama = %s"
     cursor.execute(query, (nama_barang,))
     result = cursor.fetchone()
@@ -109,7 +112,7 @@ def insert_barang(nama, satuan=None):
         if not nama or str(nama).strip() == "":
             raise ValueError("Nama barang tidak boleh kosong")
         
-        nama = str(nama).strip()
+        nama = re.sub(r'\s+', ' ', str(nama).strip())
 
         # Cek Duplikasi
         cursor.execute("SELECT id FROM barang WHERE nama = %s", (nama,))
@@ -500,6 +503,8 @@ def get_harga_customer(nama_cust, jenis_barang):
     conn = get_connection()
     cursor = conn.cursor()
 
+    jenis_barang = re.sub(r'\s+', ' ', str(jenis_barang).strip())
+
     query = """
         SELECT cp.harga
         FROM customer c
@@ -807,6 +812,8 @@ def delete_supplier_pricelist(id_pricelist):
 def get_harga_supplier(nama_supp, jenis_barang):
     conn = get_connection()
     cursor = conn.cursor()
+
+    jenis_barang = re.sub(r'\s+', ' ', str(jenis_barang).strip())
 
     query = """
         SELECT sp.harga

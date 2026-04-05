@@ -180,7 +180,7 @@ with tab1:
             "Tipe": tipe_pembelian
         }])
 
-        success, failed, errors = new_database.insert_pembelian(df_input, default_top=top)
+        success, failed, errors, skipped_count = new_database.insert_pembelian(df_input, default_top=top)
 
         if success > 0:
             st.success("✅ Transaksi berhasil disimpan")

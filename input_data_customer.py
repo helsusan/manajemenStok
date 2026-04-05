@@ -292,7 +292,7 @@ with tab2:
 
     with st.expander("ℹ️ Format file Excel data customer & pricelist"):
         st.write("""
-        - Kolom Wajib: `Nama`
+        - Kolom Wajib: `Nama` atau `Customer`
         - Kolom Opsional: `TOP`, `Update Terakhir`
         - Kolom Pricelist: `Barang`, `Harga`
         - Penulisan data pricelist, setiap baris = 1 customer + 1 barang + 1 harga
@@ -310,17 +310,24 @@ with tab2:
             df_raw = pd.read_excel(uploaded_file, header=None)
 
             # Deteksi header
-            EXPECTED_COLS = ["nama"]
+            # EXPECTED_COLS = ["nama"]
             header_row_index = None
+
+            # for i, row in df_raw.iterrows():
+            #     row_str = row.astype(str).str.upper()
+            #     if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+            #         header_row_index = i
+            #         break
 
             for i, row in df_raw.iterrows():
                 row_str = row.astype(str).str.upper()
-                if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+                # Cek apakah ada sel yang mengandung NAMA atau CUSTOMER
+                if any(("NAMA" in cell) or ("CUSTOMER" in cell) for cell in row_str):
                     header_row_index = i
                     break
 
             if header_row_index is None:
-                st.error("❌ Header kolom 'Nama' tidak ditemukan")
+                st.error("❌ Header kolom 'Nama' atau 'Customer' tidak ditemukan")
                 st.stop()
 
             df = pd.read_excel(uploaded_file, header=header_row_index)
@@ -328,6 +335,7 @@ with tab2:
 
             target_cols = {
                 "NAMA": "Nama",
+                "CUSTOMER": "Nama",
                 "TOP": "TOP",
                 "BARANG": "Barang",
                 "HARGA": "Harga",

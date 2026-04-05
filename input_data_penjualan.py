@@ -182,7 +182,7 @@ with tab1:
             "Jumlah": float(total)
         }])
 
-        success, failed, errors = new_database.insert_penjualan(df_input, default_top=top)
+        success, failed, errors, skipped_count = new_database.insert_penjualan(df_input, default_top=top)
 
         if success > 0:
             st.success("✅ Transaksi berhasil disimpan")

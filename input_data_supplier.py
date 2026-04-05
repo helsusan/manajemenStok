@@ -291,7 +291,7 @@ with tab2:
 
     with st.expander("ℹ️ Format file Excel data supplier & pricelist"):
         st.write("""
-        - Kolom Wajib: `Nama`
+        - Kolom Wajib: `Nama` atau `Supplier`
         - Kolom Opsional: `TOP`, `Update Terakhir`
         - Kolom Pricelist: `Barang`, `Harga`
         - Jika ada pricelist, setiap baris = 1 supplier + 1 barang + 1 harga
@@ -309,17 +309,24 @@ with tab2:
             df_raw = pd.read_excel(uploaded_file, header=None)
 
             # Deteksi header
-            EXPECTED_COLS = ["nama"]
+            # EXPECTED_COLS = ["nama"]
             header_row_index = None
+
+            # for i, row in df_raw.iterrows():
+            #     row_str = row.astype(str).str.upper()
+            #     if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+            #         header_row_index = i
+            #         break
 
             for i, row in df_raw.iterrows():
                 row_str = row.astype(str).str.upper()
-                if all(any(col.upper() in cell for cell in row_str) for col in EXPECTED_COLS):
+                # Cek apakah ada sel yang mengandung NAMA atau SUPPLIER
+                if any(("NAMA" in cell) or ("SUPPLIER" in cell) for cell in row_str):
                     header_row_index = i
                     break
 
             if header_row_index is None:
-                st.error("❌ Header kolom 'Nama' tidak ditemukan")
+                st.error("❌ Header kolom 'Nama' atau 'Supplier' tidak ditemukan")
                 st.stop()
 
             df = pd.read_excel(uploaded_file, header=header_row_index)
@@ -327,6 +334,7 @@ with tab2:
 
             target_cols = {
                 "NAMA": "Nama",
+                "SUPPLIER": "Nama",
                 "TOP": "TOP",
                 "BARANG": "Barang",
                 "HARGA": "Harga",
@@ -403,11 +411,14 @@ with tab2:
                                     errors.append(f"Baris {idx+1}: Barang '{barang}' tidak ditemukan")
                                     continue
 
+                                # Bersihkan format Rp sebelum konversi
+                                clean_harga = str(harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
+
                                 # Cek apakah data sama persis (Barang & Harga sudah ada)
                                 current_price = new_database.get_harga_supplier(nama, barang)
-                                if current_price is not None and float(current_price) == float(harga):
+                                if current_price is not None and float(current_price) == float(clean_harga):
                                     error_count += 1
-                                    errors.append(f"Baris {idx+1}: Data sudah ada di database (Harga sama: {int(harga)})")
+                                    errors.append(f"Baris {idx+1}: Data sudah ada di database (Harga sama: {int(clean_harga)})")
                                     continue
                                 
                                 # Ambil nilai Update Terakhir (jika ada di file Excel)
@@ -420,11 +431,8 @@ with tab2:
                                             updated_at_val = pd.to_datetime(raw_date).strftime('%Y-%m-%d')
                                         except:
                                             updated_at_val = None
-
-                                # Bersihkan format Rp sebelum konversi
-                                clean_harga = str(harga).replace("Rp", "").replace("rp", "").replace(".", "").replace(",", "").replace(" ", "").strip()
                                 
-                                if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(harga), updated_at=updated_at_val):
+                                if new_database.upsert_supplier_pricelist(id_supplier, id_barang, int(clean_harga), updated_at=updated_at_val):
                                     success_count += 1
                                 else:
                                     error_count += 1
@@ -499,7 +507,7 @@ with tab2:
         st.session_state.upload_success = None
 
 # ================================================
-# TAB 3 : DAFTAR CUSTOMER
+# TAB 3 : DAFTAR SUPPLIER
 # ================================================
 
 with tab3:
