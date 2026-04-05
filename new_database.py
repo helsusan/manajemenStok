@@ -984,49 +984,45 @@ def insert_penjualan(df, default_top=None):
                 harga_satuan = subtotal / kuantitas
 
             # ======================
-            # CEK APAKAH BARANG SUDAH ADA DI DETAIL
+            # CEK APAKAH BARANG SUDAH ADA DI DETAIL (CEK 8 KRITERIA)
             # ======================
+            # Ambil TOP dari header untuk pencocokan
+            cursor.execute("SELECT top FROM penjualan WHERE id = %s", (id_penjualan,))
+            header_top_row = cursor.fetchone()
+            header_top = header_top_row[0] if header_top_row else 0
+
+            # Ambil seluruh baris barang ini yang sudah ada di nota tersebut
             cursor.execute("""
-                SELECT id, kuantitas, subtotal 
+                SELECT id, kuantitas, harga_satuan, subtotal 
                 FROM penjualan_detail 
                 WHERE id_penjualan = %s AND id_barang = %s
-                LIMIT 1
             """, (id_penjualan, id_barang))
             
-            existing_detail = cursor.fetchone()
+            existing_details = cursor.fetchall()
             
-            if existing_detail:
-                # Barang sudah ada, UPDATE kuantitas dan subtotal
-                detail_id = existing_detail[0]
-                old_kuantitas = existing_detail[1]
-                old_subtotal = float(existing_detail[2])
-
-                # Cek apakah data PERSIS SAMA (duplikat sejati)
-                old_harga_satuan = old_subtotal / old_kuantitas if old_kuantitas > 0 else 0
-                is_exact_duplicate = (
-                    old_kuantitas == kuantitas and
-                    abs(old_harga_satuan - harga_satuan) < 1  # toleransi 1 rupiah
-                )
+            is_exact_duplicate = False
+            for detail in existing_details:
+                d_qty = int(detail[1])
+                d_harga = float(detail[2])
+                d_subtotal = float(detail[3])
                 
-                if is_exact_duplicate:
-                    # Skip baris ini, jangan error, jangan update
-                    skipped_count += 1
-                    continue
-                else:
-                    # Data beda (qty atau harga beda), UPDATE seperti biasa
-                    new_kuantitas = old_kuantitas + kuantitas
-                    new_subtotal = old_subtotal + subtotal
-                    
-                    query_update = """
-                    UPDATE penjualan_detail
-                    SET kuantitas = %s, subtotal = %s
-                    WHERE id = %s
-                    """
-                    cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
-                    penjualan_cache[no_nota]["total"] += subtotal
-                
+                # Cek 8 Kriteria 
+                # (No Faktur, Tanggal, Customer sudah terwakili oleh id_penjualan)
+                if (
+                    d_qty == kuantitas and
+                    abs(d_harga - harga_satuan) < 1 and
+                    abs(d_subtotal - subtotal) < 1 and
+                    int(header_top) == int(top)
+                ):
+                    is_exact_duplicate = True
+                    break
+            
+            if is_exact_duplicate:
+                # Data 100% sama persis -> Skip agar tidak dobel
+                skipped_count += 1
+                continue
             else:
-                # Barang belum ada, INSERT baru
+                # Data beda (entah ToP, harga, qty) -> LOLOSKAN sbg baris baru (TIDAK DITUMPUK)
                 query_detail = """
                 INSERT INTO penjualan_detail
                 (id_penjualan, id_barang, kuantitas, harga_satuan, subtotal)
@@ -1411,50 +1407,45 @@ def insert_pembelian(df, default_top=None):
                 harga_satuan = subtotal / kuantitas
 
             # ======================
-            # CEK APAKAH BARANG SUDAH ADA DI DETAIL
+            # CEK APAKAH BARANG SUDAH ADA DI DETAIL (CEK 8 KRITERIA)
             # ======================
+            # Ambil TOP dari header untuk pencocokan
+            cursor.execute("SELECT top FROM pembelian WHERE id = %s", (id_pembelian,))
+            header_top_row = cursor.fetchone()
+            header_top = header_top_row[0] if header_top_row else 0
+
+            # Ambil seluruh baris barang ini yang sudah ada di nota tersebut
             cursor.execute("""
-                SELECT id, kuantitas, subtotal, harga_satuan
+                SELECT id, kuantitas, harga_satuan, subtotal
                 FROM pembelian_detail 
                 WHERE id_pembelian = %s AND id_barang = %s
-                LIMIT 1
             """, (id_pembelian, id_barang))
             
-            existing_detail = cursor.fetchone()
+            existing_details = cursor.fetchall()
             
-            if existing_detail:
-                # Barang sudah ada, UPDATE kuantitas dan subtotal
-                detail_id = existing_detail[0]
-                old_kuantitas = existing_detail[1]
-                old_subtotal = float(existing_detail[2])
-                old_harga_satuan = float(existing_detail[3])
+            is_exact_duplicate = False
+            for detail in existing_details:
+                d_qty = int(detail[1])
+                d_harga = float(detail[2])
+                d_subtotal = float(detail[3])
                 
-                # Cek apakah data PERSIS SAMA (duplikat sejati)
-                old_harga_satuan = old_subtotal / old_kuantitas if old_kuantitas > 0 else 0
-                is_exact_duplicate = (
-                    old_kuantitas == kuantitas and
-                    abs(old_harga_satuan - harga_satuan) < 1  # toleransi 1 rupiah
-                )
-                
-                if is_exact_duplicate:
-                    # Skip baris ini, jangan error, jangan update
-                    skipped_count += 1
-                    continue
-                else:
-                    # Data beda (qty atau harga beda), UPDATE seperti biasa
-                    new_kuantitas = old_kuantitas + kuantitas
-                    new_subtotal = old_subtotal + subtotal
-                    
-                    query_update = """
-                    UPDATE pembelian_detail
-                    SET kuantitas = %s, subtotal = %s
-                    WHERE id = %s
-                    """
-                    cursor.execute(query_update, (new_kuantitas, new_subtotal, detail_id))
-                    pembelian_cache[no_nota]["total"] += subtotal
-                
+                # Cek 8 Kriteria 
+                # (No Faktur, Tanggal, Supplier sudah terwakili oleh id_pembelian)
+                if (
+                    d_qty == kuantitas and
+                    abs(d_harga - harga_satuan) < 1 and
+                    abs(d_subtotal - subtotal) < 1 and
+                    int(header_top) == int(top)
+                ):
+                    is_exact_duplicate = True
+                    break
+            
+            if is_exact_duplicate:
+                # Data 100% sama persis -> Skip agar tidak dobel
+                skipped_count += 1
+                continue
             else:
-                # Barang belum ada, INSERT baru
+                # Data beda (entah ToP, harga, qty) -> LOLOSKAN sbg baris baru (TIDAK DITUMPUK)
                 query_detail = """
                 INSERT INTO pembelian_detail
                 (id_pembelian, id_barang, kuantitas, harga_satuan, subtotal)

@@ -140,6 +140,24 @@ with tab1:
             df_existing["tanggal_date"] = pd.to_datetime(df_existing["tanggal"]).dt.date
             df_existing["qty_int"] = df_existing["kuantitas"].fillna(0).astype(int)
             df_existing["top_int"] = df_existing["top"].fillna(0).astype(int)
+            df_existing["harga_float"] = pd.to_numeric(df_existing["harga_satuan"], errors="coerce").fillna(0.0)
+            df_existing["subtotal_float"] = pd.to_numeric(df_existing["subtotal"], errors="coerce").fillna(0.0)
+
+            # Cek apakah ADA baris yang SAMA PERSIS untuk seluruh kriteria
+            duplicate = df_existing[
+                (df_existing["no_nota_str"] == str(no_faktur).strip()) &
+                (df_existing["tanggal_date"] == tanggal) &
+                (df_existing["nama_supplier"] == nama_supplier) &
+                (df_existing["nama_barang"] == jenis_barang) &
+                (df_existing["qty_int"] == int(kuantitas)) &
+                (abs(df_existing["harga_float"] - float(harga_satuan)) < 1) &
+                (abs(df_existing["subtotal_float"] - float(total)) < 1) &
+                (df_existing["top_int"] == int(top))
+            ]
+            
+            if not duplicate.empty:
+                st.warning(f"⚠️ Data ganda (Double)! Transaksi Faktur {no_faktur} untuk barang {jenis_barang} dengan detail (Qty: {kuantitas}, Harga: Rp {harga_satuan:,.0f}) yang SAMA PERSIS sudah ada di database. Input dibatalkan agar tidak tertumpuk ganda.")
+                st.stop()
             
             # Cari apakah Nota & Tanggal ini sudah ada di database
             same_nota = df_existing[
