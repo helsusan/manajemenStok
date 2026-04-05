@@ -12,11 +12,72 @@ if "success_msg" not in st.session_state:
     st.session_state.success_msg = None
 
 # --- TABS ---
-# tab1, tab2, tab3 = st.tabs(["📝 Input Manual", "📤 Upload Excel", "📋 Riwayat Pembayaran"])
-tab1, tab2 = st.tabs(["📝 Input Manual", "📋 Riwayat Pembayaran"])
+tab1, tab2, tab3 = st.tabs(["🔔 Tagihan Jatuh Tempo", "📝 Input Manual", "📋 Riwayat Pembayaran"])
 
-# ================= TAB 1: INPUT MANUAL =================
+# ================= TAB 1: TAGIHAN JATUH TEMPO =================
 with tab1:
+    st.subheader("🔔 Piutang yang Perlu Dibayar")
+
+    target_date = st.date_input(
+        "📅 Tampilkan piutang yang jatuh tempo sampai tanggal:",
+        value=datetime.now().date(),
+        help="Akan menampilkan semua piutang yang due date-nya pada atau sebelum tanggal ini."
+    )
+
+    df_jatuh_tempo = new_database.get_tagihan_jatuh_tempo("piutang", target_date)
+
+    if df_jatuh_tempo.empty:
+        st.success(f"✅ Tidak ada piutang yang jatuh tempo sampai {target_date.strftime('%d %b %Y')}.")
+    else:
+        total_sisa = df_jatuh_tempo['sisa'].sum()
+        total_invoice = len(df_jatuh_tempo)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Jumlah Nota", total_invoice)
+        with col2:
+            st.metric("Total Sisa Piutang", f"Rp {total_sisa:,.0f}".replace(",", "."))
+
+        st.markdown("---")
+
+        df_display = df_jatuh_tempo.copy()
+        df_display['tanggal'] = pd.to_datetime(df_display['tanggal']).dt.strftime('%d %b %Y')
+        df_display['due_date'] = pd.to_datetime(df_display['due_date']).dt.strftime('%d %b %Y')
+        df_display['total'] = df_display['total'].apply(lambda x: f"Rp {x:,.0f}")
+        df_display['terbayar'] = df_display['terbayar'].apply(lambda x: f"Rp {x:,.0f}")
+        df_display['sisa'] = df_display['sisa'].apply(lambda x: f"Rp {x:,.0f}")
+
+        st.dataframe(
+            df_display[['partner_name', 'no_nota', 'tanggal', 'due_date', 'total', 'terbayar', 'sisa', 'status']],
+            column_config={
+                "partner_name": st.column_config.TextColumn("Supplier"),
+                "no_nota": st.column_config.TextColumn("No. Faktur"),
+                "tanggal": st.column_config.TextColumn("Tgl Transaksi"),
+                "due_date": st.column_config.TextColumn("Jatuh Tempo"),
+                "total": st.column_config.TextColumn("Total"),
+                "terbayar": st.column_config.TextColumn("Terbayar"),
+                "sisa": st.column_config.TextColumn("Sisa"),
+                "status": st.column_config.TextColumn("Status"),
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+
+        # Tombol download
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_jatuh_tempo.drop(columns=['id'], errors='ignore').to_excel(writer, index=False, sheet_name='Jatuh Tempo')
+
+        st.download_button(
+            label="📥 Download (Excel)",
+            data=output.getvalue(),
+            file_name=f"Piutang_Jatuh_Tempo_{target_date.strftime('%d-%m-%Y')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+# ================= TAB 2: INPUT MANUAL =================
+with tab2:
     st.subheader("➕ Input Pembayaran Piutang")
 
     with st.expander("ℹ️ Cara input pelunasan"):
@@ -176,7 +237,7 @@ with tab1:
 #             st.error(f"Error: {e}")
 
 # ================= TAB 3: RIWAYAT =================
-with tab2:
+with tab3:
     st.subheader("📋 Riwayat Pembayaran Piutang")
     
     selected_date = st.date_input(
@@ -225,6 +286,7 @@ with tab2:
                 "jumlah_bayar": st.column_config.TextColumn("Jumlah Bayar"),
                 "keterangan": st.column_config.TextColumn("Keterangan"),
             },
+            disabled=["bukti_penerimaan", "tanggal_bayar", "no_nota_tagihan", "partner", "jumlah_bayar", "keterangan"],
             hide_index=True,
             use_container_width=True
         )

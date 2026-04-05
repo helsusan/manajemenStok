@@ -1669,6 +1669,39 @@ def get_outstanding_invoices(jenis, id_partner=None):
     conn.close()
     return df
 
+def get_tagihan_jatuh_tempo(jenis, target_date):
+    """
+    Mengambil daftar hutang/piutang yang due date-nya
+    sebelum atau sama dengan target_date (belum lunas).
+    """
+    conn = get_connection()
+    
+    table = "piutang" if jenis == "piutang" else "hutang"
+    col_partner_id = "id_customer" if jenis == "piutang" else "id_supplier"
+    table_partner = "customer" if jenis == "piutang" else "supplier"
+    
+    query = f"""
+        SELECT 
+            t.id,
+            t.no_nota,
+            t.tanggal,
+            t.due_date,
+            t.total,
+            t.terbayar,
+            t.sisa,
+            t.status,
+            p.nama as partner_name
+        FROM {table} t
+        JOIN {table_partner} p ON t.{col_partner_id} = p.id
+        WHERE t.sisa > 0
+          AND t.due_date <= %s
+        ORDER BY t.due_date ASC, p.nama ASC
+    """
+    
+    df = pd.read_sql(query, conn, params=(target_date,))
+    conn.close()
+    return df
+
 # Mengambil riwayat pembayaran
 def get_history_pembayaran(jenis, start_date=None, end_date=None):
     conn = get_connection()
