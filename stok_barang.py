@@ -51,6 +51,7 @@ with tab2:
             barang_opts = dict(zip(barang_list['nama'], barang_list['id']))
             selected_nama_barang = st.selectbox("📦 Pilih Barang", options=list(barang_opts.keys()), key="select_brg_mutasi")
             selected_id_barang = barang_opts[selected_nama_barang]
+            satuan = new_database.get_satuan_barang(selected_nama_barang)
         else:
             st.warning("Belum ada data barang.")
             st.stop()
@@ -77,10 +78,10 @@ with tab2:
 
             # ==================== TAMPILAN SCORECARD ====================
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Stok Awal (Sebelum Periode)", f"{stok_awal:,.0f} pcs")
-            c2.metric("Total Barang Masuk", f"{total_masuk:,.0f} pcs", delta_color="normal")
-            c3.metric("Total Barang Keluar", f"{total_keluar:,.0f} pcs", delta_color="inverse")
-            c4.metric("Stok Akhir", f"{stok_akhir:,.0f} pcs")
+            c1.metric("Stok Awal (Sebelum Periode)", f"{stok_awal:,.0f} {satuan}")
+            c2.metric("Total Barang Masuk", f"{total_masuk:,.0f} {satuan}", delta_color="normal")
+            c3.metric("Total Barang Keluar", f"{total_keluar:,.0f} {satuan}", delta_color="inverse")
+            c4.metric("Stok Akhir", f"{stok_akhir:,.0f} {satuan}")
 
             # ==================== TABEL KARTU STOK ====================
             st.subheader("📋 Rincian Mutasi Harian")
@@ -123,7 +124,7 @@ with tab2:
                     y='Sisa Stok', 
                     markers=True,
                     title=f"Tren Sisa Stok - {selected_nama_barang}",
-                    labels={'Tanggal': 'Tanggal', 'Sisa Stok': 'Jumlah Stok (pcs)'}
+                    labels={'Tanggal': 'Tanggal', 'Sisa Stok': 'Jumlah Stok'}
                 )
                 # Menambahkan garis horizontal untuk menandakan angka 0
                 fig.add_hline(y=0, line_dash="dash", line_color="red")
